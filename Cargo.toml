@@ -1,0 +1,56 @@
+[package]
+name = "synchrony-rs"
+version = "0.1.0"
+edition = "2024"
+authors = ["waki285 <suzuneu@suzuneu.com>", "relative <hi@relative.im>"]
+description = "A fast JavaScript deobfuscator written in Rust"
+license = "GPL-3.0-only"
+repository = "https://github.com/waki285/synchrony-rs"
+keywords = ["javascript", "deobfuscator", "deobfuscation", "ast"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+
+rust-version = "1.88.0"
+
+[[bin]]
+name = "synchrony"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[lib]
+name = "synchrony_rs"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["cli", "tracing"]
+cli = ["dep:clap", "dep:serde", "dep:serde_json"]
+tracing = ["dep:tracing", "dep:tracing-subscriber"]
+wasm = ["dep:serde", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"], optional = true }
+regex = "1"
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+swc_atoms = "9"
+swc_common = { version = "18", features = ["tty-emitter"] }
+swc_ecma_ast = "19"
+swc_ecma_codegen = "21"
+swc_ecma_parser = "31"
+swc_ecma_usage_analyzer = "27"
+swc_ecma_utils = "25"
+swc_ecma_visit = "19"
+thiserror = "2"
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+
+[lints.rust]
+missing_debug_implementations = "warn"
+unfulfilled_lint_expectations = "deny"
+
+[lints.clippy]
+allow_attributes = "deny" # Use expect(lint) instead

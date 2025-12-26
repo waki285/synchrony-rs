@@ -7,16 +7,22 @@ on:
     branches:
       - master
 jobs:
-  push:
+  rust:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: pnpm/action-setup@2270f39ef63c3edf50be34da68c039eca5e15c15
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          version: 6.31.0
-      - uses: actions/setup-node@v2
-        with:
-          node-version: '16'
-          cache: 'pnpm'
-      - run: pnpm install
-      - run: pnpm build
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (default features)
+        run: cargo build
+
+      - name: Test
+        run: cargo test
+
+      - name: Build (wasm)
+        run: cargo build --target wasm32-unknown-unknown --no-default-features --features wasm

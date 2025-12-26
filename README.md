@@ -1,51 +1,100 @@
-# synchrony
+# synchrony-rs
 
 ![rip javascript-obfuscator](/.github/hm.png)
 
-javascript cleaner & deobfuscator (primarily [javascript-obfuscator](https://github.com/javascript-obfuscator/javascript-obfuscator)/[obfuscator.io](https://obfuscator.io))
+This project is a Rust port of [relative/synchrony](https://github.com/relative/synchrony) with additional
+enhancements for performance and analysis robustness. It targets
+obfuscation outputs primarily from
+[javascript-obfuscator](https://github.com/javascript-obfuscator/javascript-obfuscator) /
+[obfuscator.io](https://obfuscator.io).
 
-API reference is available at <https://relative.github.io/synchrony>
+## Features
 
-## Usage note
+- Multiple transformer passes (string decoder, array map, control-flow recovery)
+- Fast Rust implementation
+- Available as both a CLI and a library
 
-Artifacts produced by old versions of javascript-obfuscator will likely not deobfuscate correctly, please **DO NOT** open an issue. Try previous versions of synchrony or another deobfuscator.
-
-There is no user configuration as of yet, the string decoder works automatically
-
-## Usage
-
-Use the latest version at <https://deobfuscate.relative.im> or install from NPM
+## Usage (CLI)
 
 ```shell
-# 1. Install deobfuscator globally using yarn/npm
-npm install --global deobfuscator # alternatively, yarn global add deobfuscator, pnpm install --global deobfuscator
+# Install
+cargo install synchrony-rs
+# cargo install synchrony-rs --locked # (alternative)
 
-# 1.1. Or Install from Git
-# npm install --global relative/synchrony#master # alternatively, yarn global add relative/synchrony#master, pnpm install --global relative/synchrony#master
+# Build from source
+cargo build --release
 
-# 2. Get an obfuscated file
-curl https://gist.github.com/relative/79e392bced4b9bed8fd076f834e06dee/raw/obfuscated.js -o ./obfuscated.js
+# Run
+synchrony ./input.js
+# ./target/release/synchrony ./input.js
 
-# 3. Run deobfuscator
-synchrony deobfuscate ./obfuscated.js
-
-# 4. Check the reuslts of your debofuscation at script.cleaned.js
-cat ./obfuscated.cleaned.js
+# Output defaults to ./input.cleaned.js
 ```
 
-## Transformer errors
+## Usage (Library)
 
-Transformer errors will show errors in your terminal output like
+```rust
+use synchrony_rs::Deobfuscator;
 
+let deob = Deobfuscator::new();
+let output = deob.deobfuscate_source("var a = 1;", None).unwrap();
+println!("{output}");
 ```
-Caught an error while attempting to run AST visitor!
-node = Node {...}
-err = ...
+
+## Usage (WASM: Browser / Workers)
+
+Build the wasm package (no CLI, wasm-only bindings). On stable Rust, avoid
+`--out-dir` and copy the generated `pkg/` instead:
+
+```shell
+# Browser (web target)
+wasm-pack build --target web --no-default-features --features wasm
+cp -R pkg examples/wasm-web/
+
+# Cloudflare Workers (bundler target)
+wasm-pack build --target bundler --no-default-features --features wasm
+cp -R pkg examples/wasm-workers/
 ```
 
-Copy the entire terminal output (or redirect it to a file). Then open a new issue with the terminal output and the
-obfuscated file and any config you may have used.
+Note: do not mix web/bundler outputs. The web target is for browsers, the
+bundler target is for Workers (and other bundlers).
 
-**Please do not include screenshots or partial output from the deobfuscator.**
+JS example (browser or Workers):
 
-If you can reproduce the error with a smaller input file and a javascript-obfuscator config, please provide them in your issue.
+```js
+import init, { deobfuscate } from "./pkg/synchrony_rs.js";
+
+await init();
+const output = deobfuscate("var a = 1 + 2 + 3;", {
+  rename: false,
+  sourceType: "script",
+  ecmaVersion: "es2020",
+});
+console.log(output);
+```
+
+See the ready-to-run examples:
+
+- `examples/wasm-web`
+- `examples/wasm-workers`
+
+## Notes
+
+- Outputs from very old versions of javascript-obfuscator may not deobfuscate
+  correctly. If that happens, try another synchrony version or a different
+  deobfuscator.
+- The pipeline runs automatically; user configuration is intentionally minimal.
+
+## Troubleshooting
+
+If a transformer fails, you will see a message like:
+
+```txt
+Error: Transformer error: ...
+```
+
+Please share the full terminal output and the input file (plus a minimal
+reproduction if possible). Avoid screenshots or partial logs.
+
+Tip: build with the `tracing` feature (enabled by default) and set
+`RUST_LOG=debug` to get more detail about which transformer ran last.
