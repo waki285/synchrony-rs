@@ -95,10 +95,12 @@ Build command (from repo root):
 ```
 
 Pages settings:
+
 - Build command: `cargo install wasm-pack --locked && ./scripts/build-pages.sh`
 - Build output directory: `public`
 
 Notes:
+
 - The script builds the WASM web target and copies `pkg/` into `public/pkg/`.
 - Use `--target web` for the browser UI. Do not use the bundler output here.
 
