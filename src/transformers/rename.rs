@@ -478,6 +478,7 @@ function _0x123() {
     var _0xabc = 1;
     return _0xabc;
 }
+_0x123();
 "#;
         let options = crate::DeobfuscateOptions {
             source_type: crate::SourceType::Script,
@@ -496,6 +497,7 @@ function _0x123() {
 function _0x123(a1, b2) {
     return a1 + b2;
 }
+_0x123(1, 2);
 "#;
         let options = crate::DeobfuscateOptions {
             source_type: crate::SourceType::Script,
@@ -515,6 +517,7 @@ function normalFunc() {
     var normalVar = 1;
     console.log(normalVar);
 }
+normalFunc();
 "#;
         let options = crate::DeobfuscateOptions {
             source_type: crate::SourceType::Script,
@@ -534,6 +537,8 @@ function normalFunc() {
         let code = r#"
 function _0x111() { return 1; }
 function _0x222() { return 2; }
+_0x111();
+_0x222();
 "#;
         let options = crate::DeobfuscateOptions {
             source_type: crate::SourceType::Script,
@@ -553,6 +558,7 @@ function _0x123() {
     var _0xabc = 5;
     return _0xabc;
 }
+_0x123();
 "#;
         let options = crate::DeobfuscateOptions {
             source_type: crate::SourceType::Script,

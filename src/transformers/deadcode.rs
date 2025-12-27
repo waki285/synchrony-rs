@@ -113,12 +113,12 @@ impl Transformer for DeadCodeSafe {
             return Ok(());
         }
 
-        let scope_data = GLOBALS.set(&Default::default(), || analyze(&context.ast));
-        if scope_data.top.has_with_stmt || scope_data.top.has_eval_call {
-            return Ok(());
-        }
-
         for _ in 0..3 {
+            let scope_data = GLOBALS.set(&Default::default(), || analyze(&context.ast));
+            if scope_data.top.has_with_stmt || scope_data.top.has_eval_call {
+                break;
+            }
+
             let mut decl_spans = DeclarationSpanCollector::default();
             context.ast.visit_with(&mut decl_spans);
 
@@ -128,7 +128,11 @@ impl Transformer for DeadCodeSafe {
 
             let mut remover = UnusedDeclarationRemover::new(&scope_data, &usage.counts);
             context.ast.visit_mut_with(&mut remover);
-            if !remover.changed {
+
+            let mut iife_remover = SafeEmptyIifeRemover::default();
+            context.ast.visit_mut_with(&mut iife_remover);
+
+            if !remover.changed && !iife_remover.changed {
                 break;
             }
         }
@@ -508,6 +512,27 @@ struct UnusedDeclarationRemover<'a> {
     changed: bool,
 }
 
+#[derive(Default)]
+struct SafeEmptyIifeRemover {
+    changed: bool,
+}
+
+impl VisitMut for SafeEmptyIifeRemover {
+    fn visit_mut_stmt(&mut self, stmt: &mut Stmt) {
+        stmt.visit_mut_children_with(self);
+
+        if let Stmt::Expr(expr_stmt) = stmt
+            && let Some(call) = extract_call_expr(&expr_stmt.expr)
+            && is_empty_iife_call(call)
+        {
+            *stmt = Stmt::Empty(EmptyStmt {
+                span: Default::default(),
+            });
+            self.changed = true;
+        }
+    }
+}
+
 impl<'a> UnusedDeclarationRemover<'a> {
     fn new(scope_data: &'a crate::scope::ScopeData, direct_usage: &'a HashMap<Id, u32>) -> Self {
         Self {
@@ -686,6 +711,10 @@ impl VisitMut for UnusedDeclarationRemover<'_> {
         items.retain(|item| match item {
             ModuleItem::Stmt(Stmt::Empty(_)) => false,
             ModuleItem::Stmt(Stmt::Decl(Decl::Var(var_decl))) => !var_decl.decls.is_empty(),
+            ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fn_decl))) => !self.is_unused_decl(&fn_decl.ident),
+            ModuleItem::Stmt(Stmt::Decl(Decl::Class(class_decl))) => {
+                !self.is_unused_decl(&class_decl.ident)
+            }
             _ => true,
         });
     }
@@ -698,6 +727,8 @@ impl VisitMut for UnusedDeclarationRemover<'_> {
         stmts.retain(|stmt| match stmt {
             Stmt::Empty(_) => false,
             Stmt::Decl(Decl::Var(var_decl)) => !var_decl.decls.is_empty(),
+            Stmt::Decl(Decl::Fn(fn_decl)) => !self.is_unused_decl(&fn_decl.ident),
+            Stmt::Decl(Decl::Class(class_decl)) => !self.is_unused_decl(&class_decl.ident),
             _ => true,
         });
     }

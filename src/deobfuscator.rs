@@ -478,6 +478,7 @@ function _0x123(a1) {
     var _0xabc = a1;
     return _0xabc;
 }
+_0x123(1);
 "#;
         let options = DeobfuscateOptions {
             source_type: SourceType::Script,
@@ -499,6 +500,7 @@ function normalName(value) {
     var count = value + 1;
     return count;
 }
+normalName(1);
 "#;
         let options = DeobfuscateOptions {
             source_type: SourceType::Script,
