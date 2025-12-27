@@ -880,15 +880,14 @@ impl VisitMut for ScopeAwareProxySubstitutor {
 
     fn visit_mut_for_stmt(&mut self, for_stmt: &mut ForStmt) {
         let mut declared = HashSet::new();
-        if let Some(init) = &for_stmt.init {
-            if let VarDeclOrExpr::VarDecl(v) = init
+        if let Some(init) = &for_stmt.init
+            && let VarDeclOrExpr::VarDecl(v) = init
                 && v.kind != VarDeclKind::Var
             {
                 for d in &v.decls {
                     collect_pat_bindings(&d.name, &mut declared);
                 }
             }
-        }
         self.push_scope(declared);
         for_stmt.visit_mut_children_with(self);
         self.pop_scope();
@@ -1081,10 +1080,8 @@ fn collect_pat_bindings(pat: &Pat, declared: &mut HashSet<String>) {
             declared.insert(binding.id.sym.to_string());
         }
         Pat::Array(arr) => {
-            for elem in &arr.elems {
-                if let Some(pat) = elem {
-                    collect_pat_bindings(pat, declared);
-                }
+            for pat in arr.elems.iter().flatten() {
+                collect_pat_bindings(pat, declared);
             }
         }
         Pat::Object(obj) => {
