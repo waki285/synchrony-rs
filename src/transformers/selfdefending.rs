@@ -66,7 +66,7 @@ impl VisitMut for SelfDefendingRemover {
     fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
         items
             .iter_mut()
-            .for_each(|item| item.visit_mut_children_with(self));
+            .for_each(|item| item.visit_mut_with(self));
 
         items.retain(|item| match item {
             ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fn_decl))) => {
@@ -82,7 +82,7 @@ impl VisitMut for SelfDefendingRemover {
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
         stmts
             .iter_mut()
-            .for_each(|stmt| stmt.visit_mut_children_with(self));
+            .for_each(|stmt| stmt.visit_mut_with(self));
 
         stmts.retain(|stmt| match stmt {
             Stmt::Decl(Decl::Fn(fn_decl)) => {
@@ -219,12 +219,21 @@ fn make_noop_function_expr() -> Expr {
 }
 
 fn is_self_defending_call_expr(expr: &Expr) -> bool {
-    if let Expr::Call(call) = expr {
-        return is_self_defending_call(call)
-            || call_has_self_defending_arg(call)
-            || call_callee_has_self_defending_arg(call);
+    let Some(call) = extract_call_expr(expr) else {
+        return false;
+    };
+    is_self_defending_call(call)
+        || call_has_self_defending_arg(call)
+        || call_callee_has_self_defending_arg(call)
+}
+
+fn extract_call_expr(expr: &Expr) -> Option<&CallExpr> {
+    match expr {
+        Expr::Call(call) => Some(call),
+        Expr::Paren(paren) => extract_call_expr(&paren.expr),
+        Expr::Seq(seq) => seq.exprs.last().and_then(|expr| extract_call_expr(expr)),
+        _ => None,
     }
-    false
 }
 
 fn is_self_defending_call(call: &CallExpr) -> bool {
@@ -436,9 +445,75 @@ struct SelfDefendingScan {
     has_input_str: bool,
     has_new_state_str: bool,
     has_while_true: bool,
+    has_console: bool,
+    has_return_this: bool,
+    regexp_vars: HashSet<String>,
+    has_regexp_negated_or_test: bool,
 }
 
 impl SelfDefendingScan {
+    fn expr_ident_name(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Ident(ident) => Some(ident.sym.to_string()),
+            Expr::Paren(paren) => Self::expr_ident_name(&paren.expr),
+            Expr::Seq(seq) => seq.exprs.last().and_then(|e| Self::expr_ident_name(e)),
+            _ => None,
+        }
+    }
+
+    fn is_regexp_init(expr: &Expr) -> bool {
+        match expr {
+            Expr::Lit(Lit::Regex(_)) => true,
+            Expr::New(new_expr) => {
+                if let Expr::Ident(ident) = &*new_expr.callee {
+                    ident.sym.as_ref() == "RegExp"
+                } else {
+                    false
+                }
+            }
+            Expr::Call(call) => {
+                if let Callee::Expr(callee) = &call.callee
+                    && let Expr::Ident(ident) = &**callee
+                {
+                    ident.sym.as_ref() == "RegExp"
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn is_regexp_method_call(&self, expr: &Expr) -> Option<String> {
+        let Expr::Call(call) = expr else {
+            return None;
+        };
+        let Callee::Expr(callee) = &call.callee else {
+            return None;
+        };
+        let Expr::Member(member) = &**callee else {
+            return None;
+        };
+        let Some(obj_name) = Self::expr_ident_name(&member.obj) else {
+            return None;
+        };
+        if self.regexp_vars.contains(&obj_name) {
+            Some(obj_name)
+        } else {
+            None
+        }
+    }
+
+    fn is_negated_regexp_method_call(&self, expr: &Expr) -> Option<String> {
+        let Expr::Unary(unary) = expr else {
+            return None;
+        };
+        if unary.op != UnaryOp::Bang {
+            return None;
+        }
+        self.is_regexp_method_call(&unary.arg)
+    }
+
     fn is_self_defending(&self) -> bool {
         if self.has_regex
             && (self.has_to_string
@@ -466,6 +541,20 @@ impl SelfDefendingScan {
         }
 
         if self.has_to_string && self.has_search && self.has_regex_like {
+            return true;
+        }
+
+        if self.has_console
+            && self.has_to_string
+            && (self.has_constructor || self.has_return_this)
+        {
+            return true;
+        }
+
+        // Catch self-defending RegExp guard patterns even when method names are
+        // obfuscated via computed properties (so "toString"/"search"/etc. are not
+        // visible as identifiers or string literals yet).
+        if self.has_regex && self.has_regexp_negated_or_test {
             return true;
         }
 
@@ -514,6 +603,9 @@ impl Visit for SelfDefendingScan {
                     if value.contains("while (true)") {
                         self.has_while_true = true;
                     }
+                    if value.contains("return this") {
+                        self.has_return_this = true;
+                    }
                     if value.contains("(((.+)+)+)+$") {
                         self.has_regex_like = true;
                     }
@@ -531,6 +623,29 @@ impl Visit for SelfDefendingScan {
         lit.visit_children_with(self);
     }
 
+    fn visit_var_declarator(&mut self, decl: &VarDeclarator) {
+        if let Pat::Ident(binding) = &decl.name
+            && let Some(init) = &decl.init
+            && Self::is_regexp_init(init)
+        {
+            self.has_regex = true;
+            self.regexp_vars.insert(binding.id.sym.to_string());
+        }
+
+        decl.visit_children_with(self);
+    }
+
+    fn visit_bin_expr(&mut self, expr: &BinExpr) {
+        if expr.op == BinaryOp::LogicalOr
+            && self.is_negated_regexp_method_call(&expr.left).is_some()
+            && self.is_negated_regexp_method_call(&expr.right).is_some()
+        {
+            self.has_regexp_negated_or_test = true;
+        }
+
+        expr.visit_children_with(self);
+    }
+
     fn visit_new_expr(&mut self, expr: &NewExpr) {
         if let Expr::Ident(ident) = &*expr.callee
             && ident.sym.as_ref() == "RegExp"
@@ -541,6 +656,13 @@ impl Visit for SelfDefendingScan {
     }
 
     fn visit_call_expr(&mut self, expr: &CallExpr) {
+        if let Callee::Expr(callee) = &expr.callee
+            && let Expr::Member(member) = &**callee
+            && let Some(obj_name) = Self::expr_ident_name(&member.obj)
+            && self.regexp_vars.contains(&obj_name)
+        {
+            self.has_regex = true;
+        }
         if let Callee::Expr(callee) = &expr.callee
             && let Expr::Ident(ident) = &**callee
             && ident.sym.as_ref() == "RegExp"
@@ -559,6 +681,8 @@ impl Visit for SelfDefendingScan {
                 self.has_search = true;
             } else if name == "constructor" {
                 self.has_constructor = true;
+            } else if name == "console" {
+                self.has_console = true;
             }
         }
 
@@ -655,6 +779,33 @@ const ok = 1;
         };
         let result = deob.deobfuscate_source(code, Some(options)).unwrap();
         assert!(!result.contains("guard()"));
+        assert!(result.contains("const ok") || result.contains("var ok"));
+    }
+
+    #[test]
+    fn test_self_defending_regexp_guard_pattern_removed() {
+        let deob = Deobfuscator::new();
+        let code = r#"
+const wrap = function(ctx, fn) {
+  return function() {
+    return fn.apply(ctx, arguments);
+  };
+};
+wrap(this, function() {
+  const re = new RegExp("a");
+  const re2 = new RegExp("b", "i");
+  if (!re["test"]("x") || !re2["test"]("y")) {
+    return;
+  }
+})();
+const ok = 1;
+"#;
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![Arc::new(SelfDefending::new())]),
+            ..Default::default()
+        };
+        let result = deob.deobfuscate_source(code, Some(options)).unwrap();
+        assert!(!result.contains("wrap(this"));
         assert!(result.contains("const ok") || result.contains("var ok"));
     }
 }

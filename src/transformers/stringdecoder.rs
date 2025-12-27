@@ -22,6 +22,80 @@ use crate::error::Result;
 use crate::scope::{ScopeData, analyze};
 use crate::transformers::Transformer;
 
+// Evaluate simple constant numeric expressions (used by rotations/offsets).
+fn eval_const_i64(expr: &Expr) -> Option<i64> {
+    match expr {
+        Expr::Lit(Lit::Num(n)) => Some(n.value as i64),
+        Expr::Lit(Lit::Str(s)) => {
+            let raw = s.value.as_str()?;
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let mut sign = 1i64;
+            let mut rest = trimmed;
+            if let Some(first) = rest.chars().next() {
+                if first == '-' {
+                    sign = -1;
+                    rest = &rest[1..];
+                } else if first == '+' {
+                    rest = &rest[1..];
+                }
+            }
+            if rest.starts_with("0x") || rest.starts_with("0X") {
+                i64::from_str_radix(&rest[2..], 16).ok().map(|v| v * sign)
+            } else {
+                rest.parse::<i64>().ok().map(|v| v * sign)
+            }
+        }
+        Expr::Unary(unary) => {
+            let val = eval_const_i64(&unary.arg)?;
+            match unary.op {
+                UnaryOp::Minus => Some(-val),
+                UnaryOp::Plus => Some(val),
+                UnaryOp::Tilde => Some(!val),
+                _ => None,
+            }
+        }
+        Expr::Bin(bin) => {
+            let left = eval_const_i64(&bin.left)?;
+            let right = eval_const_i64(&bin.right)?;
+            match bin.op {
+                BinaryOp::Add => Some(left + right),
+                BinaryOp::Sub => Some(left - right),
+                BinaryOp::Mul => Some(left * right),
+                BinaryOp::Div => {
+                    if right == 0 {
+                        None
+                    } else {
+                        Some(left / right)
+                    }
+                }
+                BinaryOp::Mod => {
+                    if right == 0 {
+                        None
+                    } else {
+                        Some(left % right)
+                    }
+                }
+                BinaryOp::BitOr => Some(left | right),
+                BinaryOp::BitAnd => Some(left & right),
+                BinaryOp::BitXor => Some(left ^ right),
+                BinaryOp::LShift => Some(left << (right as u32)),
+                BinaryOp::RShift => Some(left >> (right as u32)),
+                BinaryOp::ZeroFillRShift => {
+                    let l = left as u64;
+                    Some((l >> (right as u32)) as i64)
+                }
+                _ => None,
+            }
+        }
+        Expr::Paren(paren) => eval_const_i64(&paren.expr),
+        Expr::Seq(seq) => seq.exprs.last().and_then(|e| eval_const_i64(e)),
+        _ => None,
+    }
+}
+
 /// StringDecoder transformer.
 ///
 /// Finds and decodes obfuscated string patterns into literal strings.
@@ -190,22 +264,44 @@ impl Transformer for StringDecoder {
             context.string_decoder_references.push(reference);
         }
 
-        // Fourth pass: find function references (wrapper functions around decoders)
-        let mut fn_ref_finder = FunctionReferenceFinder::new(
-            &context.string_decoders,
-            &context.string_decoder_references,
-        );
-        context.ast.visit_mut_with(&mut fn_ref_finder);
+        // Fourth pass: find function references (wrapper functions around decoders).
+        //
+        // Obfuscators often build multiple wrapper layers (wrapper -> wrapper -> decoder).
+        // We therefore run this pass to a fixpoint so newly discovered wrappers can be
+        // used as inputs for the next iteration.
+        let mut known: HashSet<String> = context
+            .string_decoder_references
+            .iter()
+            .map(|r| r.identifier.clone())
+            .collect();
 
-        for reference in fn_ref_finder.references {
-            crate::log_debug!(
-                "Found function reference '{}' -> '{}' (index_arg: {:?}, key_arg: {:?})",
-                reference.identifier,
-                reference.real_identifier,
-                reference.index_argument,
-                reference.key_argument
+        let mut rounds = 0usize;
+        loop {
+            rounds += 1;
+            let mut fn_ref_finder = FunctionReferenceFinder::new(
+                &context.string_decoders,
+                &context.string_decoder_references,
             );
-            context.string_decoder_references.push(reference);
+            context.ast.visit_mut_with(&mut fn_ref_finder);
+
+            let mut added_any = false;
+            for reference in fn_ref_finder.references {
+                if known.insert(reference.identifier.clone()) {
+                    crate::log_debug!(
+                        "Found function reference '{}' -> '{}' (index_arg: {:?}, key_arg: {:?})",
+                        reference.identifier,
+                        reference.real_identifier,
+                        reference.index_argument,
+                        reference.key_argument
+                    );
+                    context.string_decoder_references.push(reference);
+                    added_any = true;
+                }
+            }
+
+            if !added_any || rounds >= 8 {
+                break;
+            }
         }
 
         // Fifth pass: find push/shift rotation patterns (IIFE that rotates array)
@@ -813,6 +909,20 @@ impl<'a> ShiftFinder<'a> {
     /// Check if an expression is a push(shift()) pattern on given array
     #[must_use]
     fn is_push_shift_pattern(expr: &Expr) -> bool {
+        fn prop_is_name(prop: &MemberProp, name: &str) -> bool {
+            match prop {
+                MemberProp::Ident(ident) => ident.sym == name,
+                MemberProp::Computed(comp) => {
+                    if let Expr::Lit(Lit::Str(s)) = &*comp.expr {
+                        s.value.as_str() == Some(name)
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            }
+        }
+
         // obj.push(obj.shift())
         let Expr::Call(call) = expr else {
             return false;
@@ -826,10 +936,7 @@ impl<'a> ShiftFinder<'a> {
         let Expr::Ident(obj) = &*member.obj else {
             return false;
         };
-        let MemberProp::Ident(prop) = &member.prop else {
-            return false;
-        };
-        if prop.sym != "push" {
+        if !prop_is_name(&member.prop, "push") {
             return false;
         }
         if call.args.len() != 1 {
@@ -850,10 +957,7 @@ impl<'a> ShiftFinder<'a> {
         if shift_obj.sym != obj.sym {
             return false;
         }
-        let MemberProp::Ident(shift_prop) = &shift_member.prop else {
-            return false;
-        };
-        shift_prop.sym == "shift"
+        prop_is_name(&shift_member.prop, "shift")
     }
 
     /// Check for push/shift in try-catch body
@@ -926,10 +1030,8 @@ impl<'a> ShiftFinder<'a> {
     /// Extract break condition number from IIFE call
     #[must_use]
     fn extract_break_condition(call: &CallExpr) -> Option<i64> {
-        if call.args.len() >= 2
-            && let Expr::Lit(Lit::Num(n)) = &*call.args[1].expr
-        {
-            return Some(n.value as i64);
+        if call.args.len() >= 2 {
+            return eval_const_i64(&call.args[1].expr);
         }
         None
     }
@@ -1111,14 +1213,15 @@ impl<'a> ShiftFinder<'a> {
                 if let Expr::Ident(func_ident) = &**callee {
                     let func_name = func_ident.sym.to_string();
 
-                    let (decoder, extra_offset) = self.resolve_decoder(&func_name)?;
+                    let (decoder, extra_offset, index_argument, key_argument) =
+                        self.resolve_decoder(&func_name)?;
 
                     // Get the index argument
-                    if call.args.is_empty() {
+                    if call.args.len() <= index_argument {
                         return None;
                     }
 
-                    let index = self.get_numeric_arg(&call.args[0].expr)?;
+                    let index = self.get_numeric_arg(&call.args[index_argument].expr)?;
                     let final_index = (index + decoder.offset + extra_offset) as usize;
 
                     // Get from rotated strings
@@ -1135,8 +1238,9 @@ impl<'a> ShiftFinder<'a> {
                             }
                             DecoderFunctionType::Rc4 => {
                                 // RC4 needs a key from the second argument
-                                if call.args.len() >= 2
-                                    && let Expr::Lit(Lit::Str(key_str)) = &*call.args[1].expr
+                                if call.args.len() > key_argument
+                                    && let Expr::Lit(Lit::Str(key_str)) =
+                                        &*call.args[key_argument].expr
                                     && let Some(key) = key_str.value.as_str()
                                 {
                                     let charset = decoder.charset.as_deref()
@@ -1206,13 +1310,20 @@ impl<'a> ShiftFinder<'a> {
     }
 
     #[must_use]
-    fn resolve_decoder(&self, name: &str) -> Option<(&DecoderFunction, i32)> {
+    fn resolve_decoder(&self, name: &str) -> Option<(&DecoderFunction, i32, usize, usize)> {
         if let Some(decoder) = self.string_decoders.iter().find(|d| d.identifier == name) {
-            return Some((decoder, 0));
+            return Some((
+                decoder,
+                0,
+                decoder.index_argument,
+                decoder.key_argument,
+            ));
         }
 
         let mut current_name = name.to_string();
         let mut total_offset = 0i32;
+        let mut index_argument = None;
+        let mut key_argument = None;
         let mut visited = Vec::new();
 
         loop {
@@ -1227,6 +1338,16 @@ impl<'a> ShiftFinder<'a> {
                 .find(|r| r.identifier == current_name)
             {
                 total_offset += reference.additional_offset;
+
+                // Capture the call-site argument mapping once; deeper mappings are
+                // relative to intermediate wrappers, not the original call.
+                if index_argument.is_none() {
+                    index_argument = reference.index_argument;
+                }
+                if key_argument.is_none() {
+                    key_argument = reference.key_argument;
+                }
+
                 current_name = reference.real_identifier.clone();
 
                 if let Some(decoder) = self
@@ -1234,7 +1355,12 @@ impl<'a> ShiftFinder<'a> {
                     .iter()
                     .find(|d| d.identifier == current_name)
                 {
-                    return Some((decoder, total_offset));
+                    return Some((
+                        decoder,
+                        total_offset,
+                        index_argument.unwrap_or(decoder.index_argument),
+                        key_argument.unwrap_or(decoder.key_argument),
+                    ));
                 }
             } else {
                 return None;
@@ -1245,27 +1371,7 @@ impl<'a> ShiftFinder<'a> {
     /// Extract numeric value from expression
     #[must_use]
     fn get_numeric_arg(&self, expr: &Expr) -> Option<i32> {
-        match expr {
-            Expr::Lit(Lit::Num(n)) => Some(n.value as i32),
-            Expr::Unary(unary) if unary.op == UnaryOp::Minus => {
-                if let Expr::Lit(Lit::Num(n)) = &*unary.arg {
-                    Some(-(n.value as i32))
-                } else {
-                    None
-                }
-            }
-            Expr::Lit(Lit::Str(s)) => {
-                // Handle string index like "0x123"
-                s.value.as_str().and_then(|v| {
-                    if v.starts_with("0x") || v.starts_with("0X") {
-                        i32::from_str_radix(&v[2..], 16).ok()
-                    } else {
-                        v.parse().ok()
-                    }
-                })
-            }
-            _ => None,
-        }
+        eval_const_i64(expr).map(|v| v as i32)
     }
 }
 
@@ -1564,12 +1670,45 @@ impl<'a> DecoderFunctionFinder<'a> {
             .collect()
     }
 
+    #[must_use]
+    fn extract_seq_expr(expr: &Expr) -> Option<&SeqExpr> {
+        match expr {
+            Expr::Seq(seq) => Some(seq),
+            Expr::Paren(paren) => Self::extract_seq_expr(&paren.expr),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    fn strip_parens(expr: &Expr) -> &Expr {
+        match expr {
+            Expr::Paren(paren) => Self::strip_parens(&paren.expr),
+            _ => expr,
+        }
+    }
+
+    #[must_use]
+    fn expr_is_ident_name(expr: &Expr, name: &str) -> bool {
+        match Self::strip_parens(expr) {
+            Expr::Ident(ident) => ident.sym == name,
+            _ => false,
+        }
+    }
+
+    #[must_use]
+    fn assign_left_name(assign: &AssignExpr) -> Option<&str> {
+        assign
+            .left
+            .as_ident()
+            .map(|binding| binding.id.sym.as_ref())
+    }
+
     /// Extract offset from binary expression like `idx - 123` or `idx + 456`
     #[must_use]
     fn extract_offset(expr: &Expr) -> Option<i32> {
         if let Expr::Bin(bin) = expr {
             // Check right side for number
-            let num = Self::extract_numeric_literal(&bin.right)?;
+            let num = eval_const_i64(&bin.right)? as i32;
 
             // Apply operator
             match bin.op {
@@ -1582,25 +1721,178 @@ impl<'a> DecoderFunctionFinder<'a> {
         }
     }
 
+    /// Extract offset from assignment expression (`=`/`+=`/`-=` forms)
     #[must_use]
-    fn extract_numeric_literal(expr: &Expr) -> Option<i32> {
+    fn extract_offset_from_assign(assign: &AssignExpr) -> Option<i32> {
+        let left_name = Self::assign_left_name(assign)?;
+        match assign.op {
+            AssignOp::Assign => {
+                if let Expr::Bin(bin) = Self::strip_parens(&assign.right)
+                    && !Self::expr_is_ident_name(&bin.left, left_name)
+                {
+                    return None;
+                }
+                Self::extract_offset(&assign.right)
+            }
+            AssignOp::AddAssign => eval_const_i64(&assign.right).map(|v| v as i32),
+            AssignOp::SubAssign => eval_const_i64(&assign.right).map(|v| -(v as i32)),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    fn find_offset_in_stmts(stmts: &[Stmt]) -> Option<i32> {
+        for stmt in stmts {
+            if let Some(off) = Self::find_offset_in_stmt(stmt) {
+                return Some(off);
+            }
+        }
+        None
+    }
+
+    #[must_use]
+    fn find_offset_in_stmt(stmt: &Stmt) -> Option<i32> {
+        match stmt {
+            Stmt::Expr(expr_stmt) => Self::find_offset_in_expr(&expr_stmt.expr),
+            Stmt::Return(ret) => ret
+                .arg
+                .as_ref()
+                .and_then(|arg| Self::find_offset_in_expr(arg)),
+            Stmt::Block(block) => Self::find_offset_in_stmts(&block.stmts),
+            Stmt::If(if_stmt) => Self::find_offset_in_stmt(&if_stmt.cons)
+                .or_else(|| if_stmt.alt.as_ref().and_then(|alt| Self::find_offset_in_stmt(alt))),
+            Stmt::While(while_stmt) => Self::find_offset_in_stmt(&while_stmt.body),
+            Stmt::For(for_stmt) => Self::find_offset_in_stmt(&for_stmt.body),
+            Stmt::ForIn(for_in) => Self::find_offset_in_stmt(&for_in.body),
+            Stmt::ForOf(for_of) => Self::find_offset_in_stmt(&for_of.body),
+            Stmt::Try(try_stmt) => {
+                let mut found = Self::find_offset_in_stmts(&try_stmt.block.stmts);
+                if found.is_none() {
+                    if let Some(handler) = &try_stmt.handler {
+                        found = Self::find_offset_in_stmts(&handler.body.stmts);
+                    }
+                }
+                if found.is_none() {
+                    if let Some(finalizer) = &try_stmt.finalizer {
+                        found = Self::find_offset_in_stmts(&finalizer.stmts);
+                    }
+                }
+                found
+            }
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    fn find_offset_in_expr(expr: &Expr) -> Option<i32> {
         match expr {
-            Expr::Lit(Lit::Num(n)) => Some(n.value as i32),
-            Expr::Unary(unary) if unary.op == UnaryOp::Minus => {
-                if let Expr::Lit(Lit::Num(n)) = &*unary.arg {
-                    Some(-(n.value as i32))
-                } else {
-                    None
+            Expr::Assign(assign) => {
+                if let Some(off) = Self::extract_offset_from_assign(assign) {
+                    return Some(off);
                 }
+                Self::find_offset_in_expr(&assign.right)
             }
-            Expr::Unary(unary) if unary.op == UnaryOp::Plus => {
-                if let Expr::Lit(Lit::Num(n)) = &*unary.arg {
-                    Some(n.value as i32)
-                } else {
-                    None
+            Expr::Seq(seq) => seq
+                .exprs
+                .iter()
+                .find_map(|expr| Self::find_offset_in_expr(expr)),
+            Expr::Paren(paren) => Self::find_offset_in_expr(&paren.expr),
+            Expr::Cond(cond) => Self::find_offset_in_expr(&cond.test)
+                .or_else(|| Self::find_offset_in_expr(&cond.cons))
+                .or_else(|| Self::find_offset_in_expr(&cond.alt)),
+            Expr::Bin(bin) => Self::find_offset_in_expr(&bin.left)
+                .or_else(|| Self::find_offset_in_expr(&bin.right)),
+            Expr::Unary(unary) => Self::find_offset_in_expr(&unary.arg),
+            Expr::Call(call) => {
+                for arg in &call.args {
+                    if let Some(off) = Self::find_offset_in_expr(&arg.expr) {
+                        return Some(off);
+                    }
                 }
+                None
             }
-            Expr::Paren(paren) => Self::extract_numeric_literal(&paren.expr),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    fn find_offset_in_self_assignment(stmts: &[Stmt], fn_name: &str) -> Option<i32> {
+        for stmt in stmts {
+            if let Some(off) = Self::find_offset_in_self_stmt(stmt, fn_name) {
+                return Some(off);
+            }
+        }
+        None
+    }
+
+    #[must_use]
+    fn find_offset_in_self_stmt(stmt: &Stmt, fn_name: &str) -> Option<i32> {
+        match stmt {
+            Stmt::Expr(expr_stmt) => Self::find_offset_in_self_expr(&expr_stmt.expr, fn_name),
+            Stmt::Return(ret) => ret
+                .arg
+                .as_ref()
+                .and_then(|arg| Self::find_offset_in_self_expr(arg, fn_name)),
+            Stmt::Block(block) => Self::find_offset_in_self_assignment(&block.stmts, fn_name),
+            Stmt::If(if_stmt) => Self::find_offset_in_self_stmt(&if_stmt.cons, fn_name)
+                .or_else(|| {
+                    if_stmt
+                        .alt
+                        .as_ref()
+                        .and_then(|alt| Self::find_offset_in_self_stmt(alt, fn_name))
+                }),
+            Stmt::While(while_stmt) => Self::find_offset_in_self_stmt(&while_stmt.body, fn_name),
+            Stmt::For(for_stmt) => Self::find_offset_in_self_stmt(&for_stmt.body, fn_name),
+            Stmt::ForIn(for_in) => Self::find_offset_in_self_stmt(&for_in.body, fn_name),
+            Stmt::ForOf(for_of) => Self::find_offset_in_self_stmt(&for_of.body, fn_name),
+            Stmt::Try(try_stmt) => {
+                let mut found = Self::find_offset_in_self_assignment(&try_stmt.block.stmts, fn_name);
+                if found.is_none() {
+                    if let Some(handler) = &try_stmt.handler {
+                        found =
+                            Self::find_offset_in_self_assignment(&handler.body.stmts, fn_name);
+                    }
+                }
+                if found.is_none() {
+                    if let Some(finalizer) = &try_stmt.finalizer {
+                        found =
+                            Self::find_offset_in_self_assignment(&finalizer.stmts, fn_name);
+                    }
+                }
+                found
+            }
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    fn find_offset_in_self_expr(expr: &Expr, fn_name: &str) -> Option<i32> {
+        match expr {
+            Expr::Assign(assign) => {
+                if let Some(left_name) = Self::assign_left_name(assign)
+                    && left_name == fn_name
+                    && let Expr::Fn(fn_expr) = Self::strip_parens(&assign.right)
+                    && let Some(fn_body) = &fn_expr.function.body
+                {
+                    if let Some(off) = Self::find_offset_in_stmts(&fn_body.stmts) {
+                        return Some(off);
+                    }
+                }
+                Self::find_offset_in_self_expr(&assign.right, fn_name)
+            }
+            Expr::Seq(seq) => seq
+                .exprs
+                .iter()
+                .find_map(|expr| Self::find_offset_in_self_expr(expr, fn_name)),
+            Expr::Paren(paren) => Self::find_offset_in_self_expr(&paren.expr, fn_name),
+            Expr::Call(call) => {
+                for arg in &call.args {
+                    if let Some(off) = Self::find_offset_in_self_expr(&arg.expr, fn_name) {
+                        return Some(off);
+                    }
+                }
+                None
+            }
             _ => None,
         }
     }
@@ -2416,6 +2708,7 @@ impl VisitMut for DecoderFunctionFinder<'_> {
 
         let mut string_array_identifier = None;
         let mut offset = 0i32;
+        let mut offset_found = false;
         let mut decoder_type = DecoderFunctionType::Simple;
         let mut charset = None;
         let mut rc4_found = false;
@@ -2444,29 +2737,33 @@ impl VisitMut for DecoderFunctionFinder<'_> {
                 // Expression statement: idx = idx - OFFSET
                 Stmt::Expr(expr_stmt) => {
                     if let Expr::Assign(assign) = &*expr_stmt.expr
-                        && let Some(off) = Self::extract_offset(&assign.right)
+                        && let Some(off) = Self::extract_offset_from_assign(assign)
                     {
                         offset = off;
+                        offset_found = true;
                     }
                 }
                 // Return statement
                 Stmt::Return(ret) => {
                     // Check if return value contains sequence with function assignment
                     if let Some(arg) = &ret.arg
-                        && let Expr::Seq(seq) = &**arg
+                        && let Some(seq) = Self::extract_seq_expr(&arg)
                     {
                         for expr in &seq.exprs {
-                            if let Expr::Assign(assign) = &**expr
-                                && let Expr::Fn(fn_expr) = &*assign.right
+                            let expr = Self::strip_parens(&expr);
+                            if let Expr::Assign(assign) = expr
+                                && let Expr::Fn(fn_expr) = Self::strip_parens(&assign.right)
                                 && let Some(fn_body) = &fn_expr.function.body
                             {
                                 // Look for offset in function body
                                 for inner_stmt in &fn_body.stmts {
                                     if let Stmt::Expr(inner_expr) = inner_stmt
                                         && let Expr::Assign(inner_assign) = &*inner_expr.expr
-                                        && let Some(off) = Self::extract_offset(&inner_assign.right)
+                                        && let Some(off) =
+                                            Self::extract_offset_from_assign(inner_assign)
                                     {
                                         offset = off;
+                                        offset_found = true;
                                     }
                                 }
                             }
@@ -2481,6 +2778,12 @@ impl VisitMut for DecoderFunctionFinder<'_> {
             decoder_type = DecoderFunctionType::Rc4;
         } else if charset.is_some() {
             decoder_type = DecoderFunctionType::Base64;
+        }
+
+        if !offset_found
+            && let Some(off) = Self::find_offset_in_self_assignment(&body.stmts, &fn_name)
+        {
+            offset = off;
         }
 
         // If we found a string array reference, create decoder
@@ -2583,38 +2886,46 @@ impl<'a> FunctionReferenceFinder<'a> {
             || self.existing_refs.iter().any(|r| r.identifier == name)
     }
 
+    #[must_use]
+    fn callee_arg_positions(&self, name: &str) -> (usize, usize) {
+        if let Some(decoder) = self.decoders.iter().find(|d| d.identifier == name) {
+            return (decoder.index_argument, decoder.key_argument);
+        }
+        if let Some(reference) = self.existing_refs.iter().find(|r| r.identifier == name) {
+            return (
+                reference.index_argument.unwrap_or(0),
+                reference.key_argument.unwrap_or(1),
+            );
+        }
+        (0, 1)
+    }
+
+    #[must_use]
+    fn strip_parens(expr: &Expr) -> &Expr {
+        match expr {
+            Expr::Paren(paren) => Self::strip_parens(&paren.expr),
+            _ => expr,
+        }
+    }
+
     /// Extract additional offset from call argument like (a - 100)
     #[must_use]
     fn extract_arg_offset(expr: &Expr, param_name: &str) -> Option<i32> {
-        match expr {
+        match Self::strip_parens(expr) {
             // Simple case: just the parameter (no offset)
             Expr::Ident(ident) if ident.sym == param_name => Some(0),
             // Offset case: param - offset or param + offset
             Expr::Bin(bin) => {
                 // Check if left side is the parameter
-                if let Expr::Ident(ident) = &*bin.left
+                if let Expr::Ident(ident) = Self::strip_parens(&bin.left)
                     && ident.sym == param_name
+                    && let Some(val) = eval_const_i64(&bin.right).map(|v| v as i32)
                 {
-                    // Get offset value
-                    let offset_val = match &*bin.right {
-                        Expr::Lit(Lit::Num(n)) => Some(n.value as i32),
-                        Expr::Unary(unary) if unary.op == UnaryOp::Minus => {
-                            if let Expr::Lit(Lit::Num(n)) = &*unary.arg {
-                                Some(-(n.value as i32))
-                            } else {
-                                None
-                            }
-                        }
+                    return match bin.op {
+                        BinaryOp::Sub => Some(-val), // param - val means offset of -val
+                        BinaryOp::Add => Some(val),
                         _ => None,
                     };
-
-                    if let Some(val) = offset_val {
-                        return match bin.op {
-                            BinaryOp::Sub => Some(-val), // param - val means offset of -val
-                            BinaryOp::Add => Some(val),
-                            _ => None,
-                        };
-                    }
                 }
                 None
             }
@@ -2637,15 +2948,12 @@ impl<'a> FunctionReferenceFinder<'a> {
     /// Extract parameter name from expression
     #[must_use]
     fn extract_param_name(expr: &Expr) -> Option<String> {
-        match expr {
+        match Self::strip_parens(expr) {
             Expr::Ident(ident) => Some(ident.sym.to_string()),
-            Expr::Bin(bin) => {
-                if let Expr::Ident(ident) = &*bin.left {
-                    Some(ident.sym.to_string())
-                } else {
-                    None
-                }
-            }
+            Expr::Bin(bin) => match Self::strip_parens(&bin.left) {
+                Expr::Ident(ident) => Some(ident.sym.to_string()),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -2677,6 +2985,8 @@ impl VisitMut for FunctionReferenceFinder<'_> {
                 let callee_name = callee_ident.sym.to_string();
 
                 if self.is_known_decoder(&callee_name) {
+                    let (callee_index_arg, callee_key_arg) =
+                        self.callee_arg_positions(&callee_name);
                     // Found a wrapper! Extract argument mapping
                     let mut additional_offset = 0i32;
                     let mut index_argument = None;
@@ -2688,12 +2998,11 @@ impl VisitMut for FunctionReferenceFinder<'_> {
                             && let Some(offset) = Self::extract_arg_offset(&arg.expr, &param_name)
                             && let Some(param_idx) = Self::find_param_index(params, &param_name)
                         {
-                            if i == 0 {
-                                // First argument is usually index
+                            if i == callee_index_arg {
                                 index_argument = Some(param_idx);
                                 additional_offset = offset;
-                            } else if i == 1 {
-                                // Second argument is usually key (for RC4)
+                            }
+                            if i == callee_key_arg {
                                 key_argument = Some(param_idx);
                             }
                         }
@@ -2735,15 +3044,22 @@ impl<'a> StringDecoderReplacer<'a> {
 
     /// Resolve a reference to find the actual decoder and total offset
     #[must_use]
-    fn resolve_decoder(&self, name: &str) -> Option<(&DecoderFunction, i32)> {
+    fn resolve_decoder(&self, name: &str) -> Option<(&DecoderFunction, i32, usize, usize)> {
         // Direct decoder lookup
         if let Some(decoder) = self.string_decoders.iter().find(|d| d.identifier == name) {
-            return Some((decoder, 0));
+            return Some((
+                decoder,
+                0,
+                decoder.index_argument,
+                decoder.key_argument,
+            ));
         }
 
         // Reference chain lookup
         let mut current_name = name.to_string();
         let mut total_offset = 0i32;
+        let mut index_argument = None;
+        let mut key_argument = None;
         let mut visited = vec![];
 
         loop {
@@ -2758,6 +3074,15 @@ impl<'a> StringDecoderReplacer<'a> {
                 .find(|r| r.identifier == current_name)
             {
                 total_offset += reference.additional_offset;
+
+                // Capture the call-site argument mapping once; deeper mappings are
+                // relative to intermediate wrappers, not the original call.
+                if index_argument.is_none() {
+                    index_argument = reference.index_argument;
+                }
+                if key_argument.is_none() {
+                    key_argument = reference.key_argument;
+                }
                 current_name = reference.real_identifier.clone();
 
                 // Check if we've reached a decoder
@@ -2766,7 +3091,12 @@ impl<'a> StringDecoderReplacer<'a> {
                     .iter()
                     .find(|d| d.identifier == current_name)
                 {
-                    return Some((decoder, total_offset));
+                    return Some((
+                        decoder,
+                        total_offset,
+                        index_argument.unwrap_or(decoder.index_argument),
+                        key_argument.unwrap_or(decoder.key_argument),
+                    ));
                 }
             } else {
                 return None;
@@ -2776,7 +3106,8 @@ impl<'a> StringDecoderReplacer<'a> {
 
     #[must_use]
     fn decode(&self, decoder_name: &str, args: &[ExprOrSpread]) -> Option<String> {
-        let (decoder, extra_offset) = self.resolve_decoder(decoder_name)?;
+        let (decoder, extra_offset, index_argument, key_argument) =
+            self.resolve_decoder(decoder_name)?;
 
         let string_array = self
             .string_arrays
@@ -2784,8 +3115,8 @@ impl<'a> StringDecoderReplacer<'a> {
             .find(|a| a.identifier == decoder.string_array_identifier)?;
 
         // Get the index argument
-        let index = if decoder.index_argument < args.len() {
-            match &*args[decoder.index_argument].expr {
+        let index = if index_argument < args.len() {
+            match &*args[index_argument].expr {
                 Expr::Lit(Lit::Num(n)) => n.value as i32,
                 Expr::Lit(Lit::Str(s)) => parse_index_str(s.value.as_str()?)?,
                 Expr::Unary(unary) if unary.op == UnaryOp::Minus => {
@@ -2817,8 +3148,8 @@ impl<'a> StringDecoderReplacer<'a> {
             }
             DecoderFunctionType::Rc4 => {
                 // Get the key argument
-                let key = if decoder.key_argument < args.len() {
-                    match &*args[decoder.key_argument].expr {
+                let key = if key_argument < args.len() {
+                    match &*args[key_argument].expr {
                         Expr::Lit(Lit::Str(s)) => s.value.as_str()?.to_string(),
                         _ => return None,
                     }
@@ -2884,6 +3215,9 @@ fn parse_index_str(value: &str) -> Option<i32> {
 mod tests {
     use super::*;
     use crate::Deobfuscator;
+
+    use crate::deobfuscator::DeobfuscateOptions;
+    use std::sync::Arc;
 
     #[test]
     fn test_stringdecoder_new() {
@@ -3043,5 +3377,90 @@ const ok = 1;
         let expr = parser.parse_expr().unwrap();
         let offset = DecoderFunctionFinder::extract_offset(&expr);
         assert_eq!(offset, Some(456));
+    }
+
+    #[test]
+    fn test_decoder_function_finder_extracts_self_redef_offset() {
+        use swc_common::{FileName, SourceMap, sync::Lrc};
+        use swc_ecma_parser::{Parser, StringInput, Syntax};
+        use swc_ecma_visit::VisitMutWith;
+
+        let code = r#"
+function _0xbba6(_0x9779e0,_0x3727db){
+  const _0x2a129a=_0x9fd6();
+  return _0xbba6=function(_0x5e4e8c,_0x244e6b){
+    _0x5e4e8c=_0x5e4e8c-(-0x2315*0x1+0x1938+0xa62);
+    let _0x172341=_0x2a129a[_0x5e4e8c];
+    return _0x172341;
+  },_0xbba6(_0x9779e0,_0x3727db);
+}
+"#;
+
+        let cm: Lrc<SourceMap> = Default::default();
+        let fm = cm.new_source_file(FileName::Custom("test.js".into()).into(), code);
+
+        let mut parser = Parser::new(
+            Syntax::Es(Default::default()),
+            StringInput::from(&*fm),
+            None,
+        );
+
+        let script = parser.parse_script().unwrap();
+        let mut program = Program::Script(script);
+
+        let string_arrays = vec![StringArray {
+            identifier: "_0x9fd6".to_string(),
+            array_type: StringArrayType::Function,
+            strings: Vec::new(),
+        }];
+
+        let mut finder = DecoderFunctionFinder::new(&string_arrays);
+
+        GLOBALS.set(&Default::default(), || {
+            program.visit_mut_with(&mut finder);
+        });
+
+        assert_eq!(finder.decoders.len(), 1);
+        let decoder = &finder.decoders[0];
+        assert_eq!(decoder.identifier, "_0xbba6");
+        assert_eq!(decoder.string_array_identifier, "_0x9fd6");
+        assert_eq!(decoder.offset, -133);
+    }
+
+    #[test]
+    fn test_stringdecoder_decodes_multi_level_wrapper_calls() {
+        let deob = Deobfuscator::new();
+        let code = r#"
+function _0xarr() {
+  const _0x2a129a = ["foo", "bar", "baz"];
+  _0xarr = function() { return _0x2a129a; };
+  return _0xarr();
+}
+function _0xbba6(_0x9779e0, _0x3727db) {
+  const _0x2a129a = _0xarr();
+  _0xbba6 = function(_0x5e4e8c, _0x244e6b) {
+    _0x5e4e8c = _0x5e4e8c - (0);
+    let _0x172341 = _0x2a129a[_0x5e4e8c];
+    return _0x172341;
+  };
+  return _0xbba6(_0x9779e0, _0x3727db);
+}
+function _0x40e6ec(_0x16b97b, _0x25372d, _0x291b16, _0x20a4c7, _0x29edc4) {
+  return _0xbba6(_0x25372d - -0, _0x16b97b);
+}
+function _0x4f33c7(_0x6fbb93, _0x51a83f, _0x4c30c6, _0xf312d4, _0x39d538) {
+  return _0x40e6ec(_0x6fbb93, _0x4c30c6 - 1, 0, 0, 0);
+}
+const x = _0x4f33c7(0, 0, 1, 0, 0);
+"#;
+
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![Arc::new(StringDecoder::new())]),
+            ..Default::default()
+        };
+
+        let result = deob.deobfuscate_source(code, Some(options)).unwrap();
+        assert!(result.contains("\"foo\""));
+        assert!(result.contains("const x") || result.contains("var x"));
     }
 }
