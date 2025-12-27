@@ -44,10 +44,13 @@ fn build_options(options: Option<WasmOptions>) -> Result<DeobfuscateOptions, JsV
 /// ecmaVersion?: string, format?: boolean }`.
 #[wasm_bindgen]
 pub fn deobfuscate(source: &str, options: JsValue) -> Result<String, JsValue> {
-    let opts = if options.is_null() || options.is_undefined() {
+    let opts: Option<WasmOptions> = if options.is_null() || options.is_undefined() {
         None
     } else {
-        Some(serde_wasm_bindgen::from_value(options).map_err(|e| js_error(e.to_string()))?)
+        Some(
+            serde_wasm_bindgen::from_value::<WasmOptions>(options)
+                .map_err(|e| js_error(e.to_string()))?,
+        )
     };
 
     let format = opts.as_ref().and_then(|o| o.format).unwrap_or(false);
