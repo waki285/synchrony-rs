@@ -13,6 +13,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use swc_ecma_ast::EsVersion;
 use synchrony_rs::deobfuscator::{DeobfuscateOptions, Deobfuscator, SourceType};
+#[cfg(feature = "format")]
+use synchrony_rs::format::format_js;
 use synchrony_rs::options::{map_es_version_num, parse_es_version_str, parse_source_type_str};
 use synchrony_rs::transformers::TransformerConfig;
 #[cfg(feature = "tracing")]
@@ -34,6 +36,10 @@ struct Cli {
     /// Rename obfuscated identifiers to readable names
     #[arg(short, long, default_value_t = false)]
     rename: bool,
+
+    /// Format output using the Biome formatter
+    #[arg(long, default_value_t = false)]
+    format: bool,
 
     /// Output file path (defaults to <input>.cleaned.js)
     #[arg(short, long, value_name = "FILE")]
@@ -75,6 +81,10 @@ enum Commands {
         /// Rename obfuscated identifiers to readable names
         #[arg(short, long, default_value_t = false)]
         rename: bool,
+
+        /// Format output using the Biome formatter
+        #[arg(long, default_value_t = false)]
+        format: bool,
 
         /// Output file path (defaults to <input>.cleaned.js)
         #[arg(short, long, value_name = "FILE")]
@@ -286,7 +296,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         let mut output = cli.output.clone();
         apply_config_if_present(cli.config.as_deref(), &mut options, &mut output)?;
-        return deobfuscate_code(&code, options);
+        return deobfuscate_code(&code, options, cli.format);
     }
 
     // Determine which mode we're in
@@ -294,6 +304,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Deobfuscate {
             file,
             rename,
+            format,
             output,
             config,
             ecma_version,
@@ -305,7 +316,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 build_options_from_cli(source_type, rename, ecma_version.as_deref(), loose)?;
             let mut output = output;
             apply_config_if_present(config.as_deref(), &mut options, &mut output)?;
-            deobfuscate_file(&file, output, options)?;
+            deobfuscate_file(&file, output, options, format)?;
         }
         None => {
             // Check if file argument was provided directly
@@ -324,7 +335,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     )?;
                     let mut output = cli.output.clone();
                     apply_config_if_present(cli.config.as_deref(), &mut options, &mut output)?;
-                    let result = deobfuscate_source(&source, options)?;
+                    let result = deobfuscate_source(&source, options, cli.format)?;
 
                     // Output to stdout or file
                     if let Some(output) = output {
@@ -342,7 +353,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     )?;
                     let mut output = cli.output.clone();
                     apply_config_if_present(cli.config.as_deref(), &mut options, &mut output)?;
-                    deobfuscate_file(file, output, options)?;
+                    deobfuscate_file(file, output, options, cli.format)?;
                 }
             } else {
                 // Check if stdin has data
@@ -359,7 +370,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     )?;
                     let mut output = cli.output.clone();
                     apply_config_if_present(cli.config.as_deref(), &mut options, &mut output)?;
-                    let result = deobfuscate_source(&source, options)?;
+                    let result = deobfuscate_source(&source, options, cli.format)?;
 
                     // Output to stdout or file
                     if let Some(output) = output {
@@ -388,8 +399,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 fn deobfuscate_code(
     code: &str,
     options: DeobfuscateOptions,
+    format: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = deobfuscate_source(code, options)?;
+    let result = deobfuscate_source(code, options, format)?;
     println!("{}", result);
     Ok(())
 }
@@ -398,6 +410,7 @@ fn deobfuscate_file(
     input: &Path,
     output: Option<PathBuf>,
     options: DeobfuscateOptions,
+    format: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if file exists
     if !input.exists() {
@@ -411,7 +424,7 @@ fn deobfuscate_file(
     eprintln!("Source size: {} bytes", source.len());
 
     // Deobfuscate
-    let result = deobfuscate_source(&source, options)?;
+    let result = deobfuscate_source(&source, options, format)?;
 
     // Determine output path
     let output_path = output.unwrap_or_else(|| {
@@ -437,10 +450,25 @@ fn deobfuscate_file(
 fn deobfuscate_source(
     source: &str,
     options: DeobfuscateOptions,
+    format: bool,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let deobfuscator = Deobfuscator::new();
+    let source_type = options.source_type;
 
-    deobfuscator
+    let result = deobfuscator
         .deobfuscate_source(source, Some(options))
-        .map_err(|e| e.into())
+        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+    if format {
+        #[cfg(feature = "format")]
+        {
+            return format_js(&result, source_type);
+        }
+        #[cfg(not(feature = "format"))]
+        {
+            return Err("format feature is not enabled in this build".into());
+        }
+    }
+
+    Ok(result)
 }

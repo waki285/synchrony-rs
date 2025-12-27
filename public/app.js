@@ -14,6 +14,7 @@ const clearBtn = document.getElementById("clear");
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 const renameEl = document.getElementById("rename");
+const formatEl = document.getElementById("format");
 const sourceTypeEl = document.getElementById("sourceType");
 const ecmaEl = document.getElementById("ecma");
 const copyBtn = document.getElementById("copy");
@@ -45,6 +46,7 @@ function setStatus(text, type) {
 function buildOptions() {
   const opts = {
     rename: renameEl.checked,
+    format: formatEl.checked,
     sourceType: sourceTypeEl.value,
   };
   const ecma = ecmaEl.value.trim();

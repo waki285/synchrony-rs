@@ -34,6 +34,8 @@
 pub mod context;
 pub mod deobfuscator;
 pub mod error;
+#[cfg(feature = "format")]
+pub mod format;
 pub mod options;
 pub mod scope;
 pub mod transformers;

@@ -32,12 +32,28 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 default = ["cli", "tracing"]
-cli = ["dep:clap", "dep:serde", "dep:serde_json"]
+format = [
+    "dep:biome_formatter",
+    "dep:biome_js_formatter",
+    "dep:biome_js_parser",
+    "dep:biome_js_syntax",
+]
+cli = ["dep:clap", "dep:serde", "dep:serde_json", "format"]
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
-wasm = ["dep:serde", "dep:serde-wasm-bindgen", "dep:wasm-bindgen", "dep:js-sys"]
+wasm = [
+    "dep:serde",
+    "dep:serde-wasm-bindgen",
+    "dep:wasm-bindgen",
+    "dep:js-sys",
+    "format",
+]
 
 [dependencies]
 anyhow = "1"
+biome_formatter = { version = "0.5.7", optional = true }
+biome_js_formatter = { version = "0.5.7", optional = true }
+biome_js_parser = { version = "0.5.7", optional = true }
+biome_js_syntax = { version = "0.5.7", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 regex = "1"
 serde = { version = "1", features = ["derive"], optional = true }

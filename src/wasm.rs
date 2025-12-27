@@ -4,6 +4,8 @@ use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
 use crate::deobfuscator::{DeobfuscateOptions, Deobfuscator};
+#[cfg(feature = "format")]
+use crate::format::format_js;
 use crate::options::{parse_es_version_str, parse_source_type_str};
 use crate::wasm_logger;
 
@@ -13,6 +15,7 @@ struct WasmOptions {
     rename: Option<bool>,
     source_type: Option<String>,
     ecma_version: Option<String>,
+    format: Option<bool>,
 }
 
 fn js_error(message: impl AsRef<str>) -> JsValue {
@@ -38,7 +41,7 @@ fn build_options(options: Option<WasmOptions>) -> Result<DeobfuscateOptions, JsV
 /// Deobfuscate JavaScript source code.
 ///
 /// `options` accepts `{ rename?: boolean, sourceType?: "script"|"module"|"both",
-/// ecmaVersion?: string }`.
+/// ecmaVersion?: string, format?: boolean }`.
 #[wasm_bindgen]
 pub fn deobfuscate(source: &str, options: JsValue) -> Result<String, JsValue> {
     let opts = if options.is_null() || options.is_undefined() {
@@ -47,10 +50,25 @@ pub fn deobfuscate(source: &str, options: JsValue) -> Result<String, JsValue> {
         Some(serde_wasm_bindgen::from_value(options).map_err(|e| js_error(e.to_string()))?)
     };
 
+    let format = opts.as_ref().and_then(|o| o.format).unwrap_or(false);
     let options = build_options(opts)?;
     let deob = Deobfuscator::new();
-    deob.deobfuscate_source(source, Some(options))
-        .map_err(|e| js_error(e.to_string()))
+    let result = deob
+        .deobfuscate_source(source, Some(options.clone()))
+        .map_err(|e| js_error(e.to_string()))?;
+
+    if format {
+        #[cfg(feature = "format")]
+        {
+            return format_js(&result, options.source_type).map_err(|e| js_error(e.to_string()));
+        }
+        #[cfg(not(feature = "format"))]
+        {
+            return Err(js_error("format feature is not enabled in this build"));
+        }
+    }
+
+    Ok(result)
 }
 
 /// Set the log level for Rust-side logs forwarded to JS.
