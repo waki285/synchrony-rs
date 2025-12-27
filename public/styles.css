@@ -105,6 +105,12 @@ h1 {
   animation: fade 0.6s ease-out;
 }
 
+.editor-panel {
+  height: 62vh;
+  max-height: 70vh;
+  overflow: hidden;
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -120,7 +126,8 @@ h1 {
 
 .editor {
   flex: 1;
-  min-height: 440px;
+  min-height: 0;
+  height: 100%;
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid rgba(140, 190, 255, 0.2);
@@ -286,5 +293,9 @@ select,
 
   .panel {
     min-height: 380px;
+  }
+
+  .editor-panel {
+    height: 55vh;
   }
 }
