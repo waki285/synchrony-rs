@@ -64,9 +64,7 @@ struct SelfDefendingRemover {
 
 impl VisitMut for SelfDefendingRemover {
     fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
-        items
-            .iter_mut()
-            .for_each(|item| item.visit_mut_with(self));
+        items.iter_mut().for_each(|item| item.visit_mut_with(self));
 
         items.retain(|item| match item {
             ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fn_decl))) => {
@@ -80,9 +78,7 @@ impl VisitMut for SelfDefendingRemover {
     }
 
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
-        stmts
-            .iter_mut()
-            .for_each(|stmt| stmt.visit_mut_with(self));
+        stmts.iter_mut().for_each(|stmt| stmt.visit_mut_with(self));
 
         stmts.retain(|stmt| match stmt {
             Stmt::Decl(Decl::Fn(fn_decl)) => {
@@ -494,9 +490,7 @@ impl SelfDefendingScan {
         let Expr::Member(member) = &**callee else {
             return None;
         };
-        let Some(obj_name) = Self::expr_ident_name(&member.obj) else {
-            return None;
-        };
+        let obj_name = Self::expr_ident_name(&member.obj)?;
         if self.regexp_vars.contains(&obj_name) {
             Some(obj_name)
         } else {
@@ -544,9 +538,7 @@ impl SelfDefendingScan {
             return true;
         }
 
-        if self.has_console
-            && self.has_to_string
-            && (self.has_constructor || self.has_return_this)
+        if self.has_console && self.has_to_string && (self.has_constructor || self.has_return_this)
         {
             return true;
         }

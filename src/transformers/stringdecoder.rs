@@ -1312,12 +1312,7 @@ impl<'a> ShiftFinder<'a> {
     #[must_use]
     fn resolve_decoder(&self, name: &str) -> Option<(&DecoderFunction, i32, usize, usize)> {
         if let Some(decoder) = self.string_decoders.iter().find(|d| d.identifier == name) {
-            return Some((
-                decoder,
-                0,
-                decoder.index_argument,
-                decoder.key_argument,
-            ));
+            return Some((decoder, 0, decoder.index_argument, decoder.key_argument));
         }
 
         let mut current_name = name.to_string();
@@ -1759,23 +1754,27 @@ impl<'a> DecoderFunctionFinder<'a> {
                 .as_ref()
                 .and_then(|arg| Self::find_offset_in_expr(arg)),
             Stmt::Block(block) => Self::find_offset_in_stmts(&block.stmts),
-            Stmt::If(if_stmt) => Self::find_offset_in_stmt(&if_stmt.cons)
-                .or_else(|| if_stmt.alt.as_ref().and_then(|alt| Self::find_offset_in_stmt(alt))),
+            Stmt::If(if_stmt) => Self::find_offset_in_stmt(&if_stmt.cons).or_else(|| {
+                if_stmt
+                    .alt
+                    .as_ref()
+                    .and_then(|alt| Self::find_offset_in_stmt(alt))
+            }),
             Stmt::While(while_stmt) => Self::find_offset_in_stmt(&while_stmt.body),
             Stmt::For(for_stmt) => Self::find_offset_in_stmt(&for_stmt.body),
             Stmt::ForIn(for_in) => Self::find_offset_in_stmt(&for_in.body),
             Stmt::ForOf(for_of) => Self::find_offset_in_stmt(&for_of.body),
             Stmt::Try(try_stmt) => {
                 let mut found = Self::find_offset_in_stmts(&try_stmt.block.stmts);
-                if found.is_none() {
-                    if let Some(handler) = &try_stmt.handler {
-                        found = Self::find_offset_in_stmts(&handler.body.stmts);
-                    }
+                if found.is_none()
+                    && let Some(handler) = &try_stmt.handler
+                {
+                    found = Self::find_offset_in_stmts(&handler.body.stmts);
                 }
-                if found.is_none() {
-                    if let Some(finalizer) = &try_stmt.finalizer {
-                        found = Self::find_offset_in_stmts(&finalizer.stmts);
-                    }
+                if found.is_none()
+                    && let Some(finalizer) = &try_stmt.finalizer
+                {
+                    found = Self::find_offset_in_stmts(&finalizer.stmts);
                 }
                 found
             }
@@ -1834,30 +1833,30 @@ impl<'a> DecoderFunctionFinder<'a> {
                 .as_ref()
                 .and_then(|arg| Self::find_offset_in_self_expr(arg, fn_name)),
             Stmt::Block(block) => Self::find_offset_in_self_assignment(&block.stmts, fn_name),
-            Stmt::If(if_stmt) => Self::find_offset_in_self_stmt(&if_stmt.cons, fn_name)
-                .or_else(|| {
+            Stmt::If(if_stmt) => {
+                Self::find_offset_in_self_stmt(&if_stmt.cons, fn_name).or_else(|| {
                     if_stmt
                         .alt
                         .as_ref()
                         .and_then(|alt| Self::find_offset_in_self_stmt(alt, fn_name))
-                }),
+                })
+            }
             Stmt::While(while_stmt) => Self::find_offset_in_self_stmt(&while_stmt.body, fn_name),
             Stmt::For(for_stmt) => Self::find_offset_in_self_stmt(&for_stmt.body, fn_name),
             Stmt::ForIn(for_in) => Self::find_offset_in_self_stmt(&for_in.body, fn_name),
             Stmt::ForOf(for_of) => Self::find_offset_in_self_stmt(&for_of.body, fn_name),
             Stmt::Try(try_stmt) => {
-                let mut found = Self::find_offset_in_self_assignment(&try_stmt.block.stmts, fn_name);
-                if found.is_none() {
-                    if let Some(handler) = &try_stmt.handler {
-                        found =
-                            Self::find_offset_in_self_assignment(&handler.body.stmts, fn_name);
-                    }
+                let mut found =
+                    Self::find_offset_in_self_assignment(&try_stmt.block.stmts, fn_name);
+                if found.is_none()
+                    && let Some(handler) = &try_stmt.handler
+                {
+                    found = Self::find_offset_in_self_assignment(&handler.body.stmts, fn_name);
                 }
-                if found.is_none() {
-                    if let Some(finalizer) = &try_stmt.finalizer {
-                        found =
-                            Self::find_offset_in_self_assignment(&finalizer.stmts, fn_name);
-                    }
+                if found.is_none()
+                    && let Some(finalizer) = &try_stmt.finalizer
+                {
+                    found = Self::find_offset_in_self_assignment(&finalizer.stmts, fn_name);
                 }
                 found
             }
@@ -1873,10 +1872,9 @@ impl<'a> DecoderFunctionFinder<'a> {
                     && left_name == fn_name
                     && let Expr::Fn(fn_expr) = Self::strip_parens(&assign.right)
                     && let Some(fn_body) = &fn_expr.function.body
+                    && let Some(off) = Self::find_offset_in_stmts(&fn_body.stmts)
                 {
-                    if let Some(off) = Self::find_offset_in_stmts(&fn_body.stmts) {
-                        return Some(off);
-                    }
+                    return Some(off);
                 }
                 Self::find_offset_in_self_expr(&assign.right, fn_name)
             }
@@ -2747,10 +2745,10 @@ impl VisitMut for DecoderFunctionFinder<'_> {
                 Stmt::Return(ret) => {
                     // Check if return value contains sequence with function assignment
                     if let Some(arg) = &ret.arg
-                        && let Some(seq) = Self::extract_seq_expr(&arg)
+                        && let Some(seq) = Self::extract_seq_expr(arg)
                     {
                         for expr in &seq.exprs {
-                            let expr = Self::strip_parens(&expr);
+                            let expr = Self::strip_parens(expr);
                             if let Expr::Assign(assign) = expr
                                 && let Expr::Fn(fn_expr) = Self::strip_parens(&assign.right)
                                 && let Some(fn_body) = &fn_expr.function.body
@@ -3047,12 +3045,7 @@ impl<'a> StringDecoderReplacer<'a> {
     fn resolve_decoder(&self, name: &str) -> Option<(&DecoderFunction, i32, usize, usize)> {
         // Direct decoder lookup
         if let Some(decoder) = self.string_decoders.iter().find(|d| d.identifier == name) {
-            return Some((
-                decoder,
-                0,
-                decoder.index_argument,
-                decoder.key_argument,
-            ));
+            return Some((decoder, 0, decoder.index_argument, decoder.key_argument));
         }
 
         // Reference chain lookup
