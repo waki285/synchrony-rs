@@ -57,5 +57,5 @@ scratch/
 /target
 
 # wasm-pack output
-/pkg
+pkg
 /public/pkg
