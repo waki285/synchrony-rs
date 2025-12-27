@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>synchrony-rs — deobfuscate in the browser</title>
+    <meta
+      name="description"
+      content="Fast JavaScript deobfuscation in the browser powered by Rust + WASM."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Spline+Sans+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="brand">
+        <div class="logo">s</div>
+        <div>
+          <p class="eyebrow">synchrony-rs</p>
+          <h1>Deobfuscate JavaScript in your browser.</h1>
+        </div>
+      </div>
+      <p class="lede">
+        Rust + WASM powered. Fast, private, and no server-side processing.
+      </p>
+      <div class="hero-actions">
+        <button id="run" class="btn primary" disabled>Deobfuscate</button>
+        <button id="sample" class="btn ghost">Load sample</button>
+        <button id="clear" class="btn ghost">Clear</button>
+        <span id="status" class="status">Loading WASM…</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Input</h2>
+          <div class="toggles">
+            <label class="toggle">
+              <input id="rename" type="checkbox" />
+              <span>Rename identifiers</span>
+            </label>
+            <label class="select">
+              <span>Source</span>
+              <select id="sourceType">
+                <option value="both">both</option>
+                <option value="script">script</option>
+                <option value="module">module</option>
+              </select>
+            </label>
+            <label class="select">
+              <span>ECMA</span>
+              <input id="ecma" placeholder="latest" />
+            </label>
+          </div>
+        </div>
+        <div id="input-editor" class="editor" aria-label="Input editor"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Output</h2>
+          <div class="toggles">
+            <button id="copy" class="btn ghost" disabled>Copy</button>
+            <button id="download" class="btn ghost" disabled>Download</button>
+          </div>
+        </div>
+        <div id="output-editor" class="editor" aria-label="Output editor"></div>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="panel-header">
+          <h2>Run log</h2>
+          <div class="toggles">
+            <label class="select">
+              <span>Log level</span>
+              <select id="logLevel">
+                <option value="debug">debug</option>
+                <option value="info" selected>info</option>
+                <option value="warn">warn</option>
+                <option value="error">error</option>
+                <option value="off">off</option>
+              </select>
+            </label>
+            <button id="clearLog" class="btn ghost">Clear log</button>
+          </div>
+        </div>
+        <div id="log" class="log"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>
+        Built with synchrony-rs. Runs entirely in your browser using WebAssembly.
+      </p>
+      <a class="link" href="https://github.com/waki285/synchrony-rs" target="_blank" rel="noreferrer">
+        View on GitHub
+      </a>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

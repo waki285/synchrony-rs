@@ -1226,6 +1226,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "js-sys",
  "regex",
  "serde",
  "serde-wasm-bindgen",

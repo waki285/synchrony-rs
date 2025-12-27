@@ -84,6 +84,24 @@ See the ready-to-run examples:
 - `examples/wasm-web`
 - `examples/wasm-workers`
 
+## Web UI (Cloudflare Pages)
+
+A static web UI lives in `public/` and is meant to be deployed with Cloudflare Pages.
+
+Build command (from repo root):
+
+```shell
+./scripts/build-pages.sh
+```
+
+Pages settings:
+- Build command: `cargo install wasm-pack --locked && ./scripts/build-pages.sh`
+- Build output directory: `public`
+
+Notes:
+- The script builds the WASM web target and copies `pkg/` into `public/pkg/`.
+- Use `--target web` for the browser UI. Do not use the bundler output here.
+
 ## Notes
 
 - Outputs from very old versions of javascript-obfuscator may not deobfuscate

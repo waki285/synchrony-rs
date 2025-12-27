@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::deobfuscator::{DeobfuscateOptions, Deobfuscator};
 use crate::options::{parse_es_version_str, parse_source_type_str};
+use crate::wasm_logger;
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
@@ -50,4 +51,20 @@ pub fn deobfuscate(source: &str, options: JsValue) -> Result<String, JsValue> {
     let deob = Deobfuscator::new();
     deob.deobfuscate_source(source, Some(options))
         .map_err(|e| js_error(e.to_string()))
+}
+
+/// Set the log level for Rust-side logs forwarded to JS.
+///
+/// Accepted values: "off", "error", "warn", "info", "debug".
+#[wasm_bindgen]
+pub fn set_log_level(level: &str) -> Result<(), JsValue> {
+    wasm_logger::set_log_level(level)
+}
+
+/// Set a JS callback to receive Rust-side logs.
+///
+/// The callback signature is: `(level: string, message: string) => void`.
+#[wasm_bindgen]
+pub fn set_log_sink(callback: JsValue) -> Result<(), JsValue> {
+    wasm_logger::set_log_sink_from_value(callback)
 }

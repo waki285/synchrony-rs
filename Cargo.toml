@@ -9,6 +9,14 @@ repository = "https://github.com/waki285/synchrony-rs"
 keywords = ["javascript", "deobfuscator", "deobfuscation", "ast"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
+include = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "LICENSE.md",
+    "src/**",
+    "examples/**",
+]
 
 rust-version = "1.88.0"
 
@@ -26,7 +34,7 @@ crate-type = ["rlib", "cdylib"]
 default = ["cli", "tracing"]
 cli = ["dep:clap", "dep:serde", "dep:serde_json"]
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
-wasm = ["dep:serde", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
+wasm = ["dep:serde", "dep:serde-wasm-bindgen", "dep:wasm-bindgen", "dep:js-sys"]
 
 [dependencies]
 anyhow = "1"
@@ -35,6 +43,7 @@ regex = "1"
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
+js-sys = { version = "0.3", optional = true }
 swc_atoms = "9"
 swc_common = { version = "18", features = ["tty-emitter"] }
 swc_ecma_ast = "19"

@@ -42,28 +42,50 @@ mod words;
 
 #[cfg(feature = "wasm")]
 pub mod wasm;
+#[cfg(feature = "wasm")]
+pub mod wasm_logger;
 
 pub use context::Context;
 pub use deobfuscator::{DeobfuscateOptions, Deobfuscator, SourceType};
 pub use error::{DeobfuscateError, Result};
 
-/// Logging macros that are no-ops when tracing feature is disabled
-#[cfg(feature = "tracing")]
+/// Logging macros. On WASM builds they forward to a JS log sink.
+#[cfg(feature = "wasm")]
+macro_rules! log_info {
+    ($($arg:tt)*) => {
+        crate::wasm_logger::log(
+            crate::wasm_logger::LogLevel::Info,
+            &format!($($arg)*),
+        )
+    }
+}
+
+#[cfg(all(not(feature = "wasm"), feature = "tracing"))]
 macro_rules! log_info {
     ($($arg:tt)*) => { tracing::info!($($arg)*) }
 }
 
-#[cfg(not(feature = "tracing"))]
+#[cfg(all(not(feature = "wasm"), not(feature = "tracing")))]
 macro_rules! log_info {
     ($($arg:tt)*) => { let _ = || { let _ = ::core::format_args!($($arg)*); }; };
 }
 
-#[cfg(feature = "tracing")]
+#[cfg(feature = "wasm")]
+macro_rules! log_debug {
+    ($($arg:tt)*) => {
+        crate::wasm_logger::log(
+            crate::wasm_logger::LogLevel::Debug,
+            &format!($($arg)*),
+        )
+    }
+}
+
+#[cfg(all(not(feature = "wasm"), feature = "tracing"))]
 macro_rules! log_debug {
     ($($arg:tt)*) => { tracing::debug!($($arg)*) }
 }
 
-#[cfg(not(feature = "tracing"))]
+#[cfg(all(not(feature = "wasm"), not(feature = "tracing")))]
 macro_rules! log_debug {
     ($($arg:tt)*) => { let _ = || { let _ = ::core::format_args!($($arg)*); }; };
 }
