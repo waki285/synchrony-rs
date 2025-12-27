@@ -1,5 +1,11 @@
 # synchrony-rs
 
+[![crates.io](https://img.shields.io/crates/v/synchrony-rs.svg)](https://crates.io/crates/synchrony-rs)
+[![docs.rs](https://img.shields.io/docsrs/synchrony-rs.svg)](https://docs.rs/synchrony-rs)
+[![downloads](https://img.shields.io/crates/dv/synchrony-rs.svg)](https://crates.io/crates/synchrony-rs)
+[![license](https://img.shields.io/crates/l/synchrony-rs.svg)](https://crates.io/crates/synchrony-rs)
+[![CI](https://img.shields.io/github/actions/workflow/status/waki285/synchrony-rs/ci.yml?branch=main)](https://github.com/waki285/synchrony-rs/actions/workflows/ci.yml)
+
 ![rip javascript-obfuscator](/.github/hm.png)
 
 This project is a Rust port of [relative/synchrony](https://github.com/relative/synchrony) with additional
