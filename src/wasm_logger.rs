@@ -3,8 +3,8 @@
 use std::cell::RefCell;
 
 use js_sys::Function;
-use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
@@ -34,10 +34,7 @@ impl LogLevel {
             "warn" | "warning" => Ok(LogLevel::Warn),
             "info" => Ok(LogLevel::Info),
             "debug" => Ok(LogLevel::Debug),
-            other => Err(JsValue::from_str(&format!(
-                "Unknown log level: {}",
-                other
-            ))),
+            other => Err(JsValue::from_str(&format!("Unknown log level: {}", other))),
         }
     }
 }
