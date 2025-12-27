@@ -45,7 +45,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CF_PAGES_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy public --project-name synchrony-rs --commit-dirty=true
+          command: pages deploy public --project-name synchrony-rs --branch ${{ github.ref_name }} --commit-dirty=true
 
       - name: Mark deployment success
         if: success()
