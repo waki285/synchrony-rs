@@ -4,7 +4,7 @@
 [![docs.rs](https://img.shields.io/docsrs/synchrony-rs.svg)](https://docs.rs/synchrony-rs)
 [![downloads](https://img.shields.io/crates/dv/synchrony-rs.svg)](https://crates.io/crates/synchrony-rs)
 [![license](https://img.shields.io/crates/l/synchrony-rs.svg)](https://crates.io/crates/synchrony-rs)
-[![CI](https://img.shields.io/github/actions/workflow/status/waki285/synchrony-rs/ci.yml?branch=main)](https://github.com/waki285/synchrony-rs/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/waki285/synchrony-rs/ci.yml?branch=master)](https://github.com/waki285/synchrony-rs/actions/workflows/ci.yml)
 
 ![rip javascript-obfuscator](/.github/hm.png)
 
