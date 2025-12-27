@@ -162,8 +162,7 @@ impl VisitMut for SelfDefendingRemover {
                 };
 
                 if is_guard || is_self_defending_expr(init) {
-                    self.self_defending_vars
-                        .insert(binding.id.sym.to_string());
+                    self.self_defending_vars.insert(binding.id.sym.to_string());
                 }
             }
         }
@@ -357,8 +356,7 @@ impl Visit for SelfDefendingCollector {
             && let Some(init) = &decl.init
             && (is_self_defending_expr(init) || is_self_defending_call_expr(init))
         {
-            self.self_defending_vars
-                .insert(binding.id.sym.to_string());
+            self.self_defending_vars.insert(binding.id.sym.to_string());
         }
         decl.visit_children_with(self);
     }

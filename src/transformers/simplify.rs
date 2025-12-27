@@ -577,7 +577,6 @@ impl VisitMut for SimplifyVisitor {
     }
 }
 
-
 /// Fixup visitor - handles edge cases and cleanup
 struct FixupVisitor;
 
@@ -696,7 +695,12 @@ impl VisitMut for FixProxiesVisitor {
                     return;
                 };
                 (
-                    fn_expr.function.params.iter().map(|p| &p.pat).collect::<Vec<_>>(),
+                    fn_expr
+                        .function
+                        .params
+                        .iter()
+                        .map(|p| &p.pat)
+                        .collect::<Vec<_>>(),
                     body.stmts.as_slice(),
                 )
             }
@@ -704,7 +708,10 @@ impl VisitMut for FixProxiesVisitor {
                 let BlockStmtOrExpr::BlockStmt(block) = &*arrow.body else {
                     return;
                 };
-                (arrow.params.iter().collect::<Vec<_>>(), block.stmts.as_slice())
+                (
+                    arrow.params.iter().collect::<Vec<_>>(),
+                    block.stmts.as_slice(),
+                )
             }
             _ => return,
         };
@@ -726,9 +733,11 @@ impl VisitMut for FixProxiesVisitor {
         };
 
         // Only handle safe argument expressions (TS requires Literal or Identifier)
-        if !call.args.iter().all(|arg| {
-            arg.spread.is_none() && matches!(&*arg.expr, Expr::Lit(_) | Expr::Ident(_))
-        }) {
+        if !call
+            .args
+            .iter()
+            .all(|arg| arg.spread.is_none() && matches!(&*arg.expr, Expr::Lit(_) | Expr::Ident(_)))
+        {
             return;
         }
 
@@ -742,7 +751,12 @@ impl VisitMut for FixProxiesVisitor {
 
         let mut param_map: HashMap<String, Expr> = HashMap::new();
         for (idx, name) in param_names.into_iter().enumerate() {
-            let arg_expr = call.args.get(idx).expect("checked args length").expr.clone();
+            let arg_expr = call
+                .args
+                .get(idx)
+                .expect("checked args length")
+                .expr
+                .clone();
             param_map.insert(name, *arg_expr);
         }
 
@@ -764,7 +778,10 @@ fn unwrap_paren_expr(expr: Expr) -> Expr {
 
 #[must_use]
 fn extract_single_return_expr(stmts: &[Stmt]) -> Option<Expr> {
-    let non_empty: Vec<&Stmt> = stmts.iter().filter(|s| !matches!(s, Stmt::Empty(_))).collect();
+    let non_empty: Vec<&Stmt> = stmts
+        .iter()
+        .filter(|s| !matches!(s, Stmt::Empty(_)))
+        .collect();
     if non_empty.len() != 1 {
         return None;
     }
@@ -882,12 +899,12 @@ impl VisitMut for ScopeAwareProxySubstitutor {
         let mut declared = HashSet::new();
         if let Some(init) = &for_stmt.init
             && let VarDeclOrExpr::VarDecl(v) = init
-                && v.kind != VarDeclKind::Var
-            {
-                for d in &v.decls {
-                    collect_pat_bindings(&d.name, &mut declared);
-                }
+            && v.kind != VarDeclKind::Var
+        {
+            for d in &v.decls {
+                collect_pat_bindings(&d.name, &mut declared);
             }
+        }
         self.push_scope(declared);
         for_stmt.visit_mut_children_with(self);
         self.pop_scope();
@@ -1027,7 +1044,9 @@ fn collect_function_scoped_names_from_stmt(stmt: &Stmt, declared: &mut HashSet<S
                 collect_function_scoped_names_from_stmt(alt, declared);
             }
         }
-        Stmt::While(while_stmt) => collect_function_scoped_names_from_stmt(&while_stmt.body, declared),
+        Stmt::While(while_stmt) => {
+            collect_function_scoped_names_from_stmt(&while_stmt.body, declared)
+        }
         Stmt::DoWhile(do_while_stmt) => {
             collect_function_scoped_names_from_stmt(&do_while_stmt.body, declared);
         }

@@ -9,14 +9,14 @@ use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use synchrony_rs::deobfuscator::{DeobfuscateOptions, Deobfuscator, SourceType};
-use synchrony_rs::options::{map_es_version_num, parse_es_version_str, parse_source_type_str};
-use swc_ecma_ast::EsVersion;
-#[cfg(feature = "tracing")]
-use tracing_subscriber::{EnvFilter, fmt};
 use serde::Deserialize;
 use serde_json::Value;
+use swc_ecma_ast::EsVersion;
+use synchrony_rs::deobfuscator::{DeobfuscateOptions, Deobfuscator, SourceType};
+use synchrony_rs::options::{map_es_version_num, parse_es_version_str, parse_source_type_str};
 use synchrony_rs::transformers::TransformerConfig;
+#[cfg(feature = "tracing")]
+use tracing_subscriber::{EnvFilter, fmt};
 
 /// Synchrony - A fast JavaScript deobfuscator
 #[derive(Parser)]
@@ -122,7 +122,6 @@ impl From<SourceTypeArg> for SourceType {
     }
 }
 
-
 fn build_options_from_cli(
     source_type: SourceTypeArg,
     rename: bool,
@@ -181,7 +180,11 @@ enum ConfigEsVersion {
 enum ConfigTransformerEntry {
     Pair(String, Value),
     NameOnly(String),
-    Object { name: String, #[serde(default)] options: Value },
+    Object {
+        name: String,
+        #[serde(default)]
+        options: Value,
+    },
 }
 
 fn config_to_transformers(entries: Vec<ConfigTransformerEntry>) -> Vec<TransformerConfig> {
@@ -200,8 +203,9 @@ fn config_to_transformers(entries: Vec<ConfigTransformerEntry>) -> Vec<Transform
 
 fn parse_es_version_config(value: ConfigEsVersion) -> Result<EsVersion, String> {
     match value {
-        ConfigEsVersion::Number(num) => map_es_version_num(num)
-            .ok_or_else(|| format!("Unknown ECMAScript version: {}", num)),
+        ConfigEsVersion::Number(num) => {
+            map_es_version_num(num).ok_or_else(|| format!("Unknown ECMAScript version: {}", num))
+        }
         ConfigEsVersion::Text(text) => parse_es_version_str(&text),
     }
 }
@@ -230,9 +234,7 @@ fn apply_config(
     }
     if let Some(flag) = config.transform_chain_expressions {
         options.transform_chain_expressions = flag;
-        eprintln!(
-            "transformChainExpressions is currently ignored by the Rust implementation."
-        );
+        eprintln!("transformChainExpressions is currently ignored by the Rust implementation.");
     }
     if let Some(entries) = config.custom_transformers {
         options.custom_transformer_configs = Some(config_to_transformers(entries));

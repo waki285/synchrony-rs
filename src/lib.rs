@@ -58,7 +58,6 @@ macro_rules! log_info {
     ($($arg:tt)*) => { let _ = || { let _ = ::core::format_args!($($arg)*); }; };
 }
 
-
 #[cfg(feature = "tracing")]
 macro_rules! log_debug {
     ($($arg:tt)*) => { tracing::debug!($($arg)*) }
@@ -69,5 +68,5 @@ macro_rules! log_debug {
     ($($arg:tt)*) => { let _ = || { let _ = ::core::format_args!($($arg)*); }; };
 }
 
-pub(crate) use log_info;
 pub(crate) use log_debug;
+pub(crate) use log_info;

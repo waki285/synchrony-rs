@@ -25,8 +25,7 @@ fn build_options(options: Option<WasmOptions>) -> Result<DeobfuscateOptions, JsV
             out.rename = rename;
         }
         if let Some(source_type) = opts.source_type {
-            out.source_type = parse_source_type_str(&source_type)
-                .map_err(|e| js_error(e))?;
+            out.source_type = parse_source_type_str(&source_type).map_err(|e| js_error(e))?;
         }
         if let Some(ecma_version) = opts.ecma_version {
             out.ecma_version = Some(parse_es_version_str(&ecma_version).map_err(js_error)?);

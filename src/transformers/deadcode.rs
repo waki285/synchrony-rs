@@ -418,10 +418,7 @@ struct DeclarationSpanCollector {
 impl Visit for DeclarationSpanCollector {
     fn visit_binding_ident(&mut self, ident: &BindingIdent) {
         let id: Id = (ident.id.sym.clone(), ident.id.ctxt);
-        self.decl_spans
-            .entry(id)
-            .or_default()
-            .insert(ident.id.span);
+        self.decl_spans.entry(id).or_default().insert(ident.id.span);
         if let Ok(name) = std::env::var("SYNCHRONY_DEBUG_DEADCODE_NAME")
             && name == ident.id.sym.as_ref()
         {
