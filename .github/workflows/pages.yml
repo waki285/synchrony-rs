@@ -29,7 +29,7 @@ jobs:
         run: cargo install wasm-pack --locked
 
       - name: Build web UI
-        run: ./scripts/build-pages.sh
+        run: bash ./scripts/build-pages.sh
 
       - name: Publish to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

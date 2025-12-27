@@ -17,6 +17,7 @@ include = [
     "src/**",
     "examples/**",
 ]
+exclude = ["examples/wasm-web/pkg"]
 
 rust-version = "1.88.0"
 
