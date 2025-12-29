@@ -85,7 +85,10 @@ impl Visit for AntiDebugCollector {
         {
             match &**init {
                 Expr::Fn(fn_expr) => {
-                    self.consider_function((binding.id.sym.clone(), binding.id.ctxt), &fn_expr.function);
+                    self.consider_function(
+                        (binding.id.sym.clone(), binding.id.ctxt),
+                        &fn_expr.function,
+                    );
                 }
                 Expr::Arrow(arrow) => {
                     self.consider_arrow((binding.id.sym.clone(), binding.id.ctxt), arrow);
@@ -100,7 +103,10 @@ impl Visit for AntiDebugCollector {
         if let AssignTarget::Simple(SimpleAssignTarget::Ident(ident)) = &expr.left {
             match &*expr.right {
                 Expr::Fn(fn_expr) => {
-                    self.consider_function((ident.id.sym.clone(), ident.id.ctxt), &fn_expr.function);
+                    self.consider_function(
+                        (ident.id.sym.clone(), ident.id.ctxt),
+                        &fn_expr.function,
+                    );
                 }
                 Expr::Arrow(arrow) => {
                     self.consider_arrow((ident.id.sym.clone(), ident.id.ctxt), arrow);
@@ -130,11 +136,11 @@ impl AntiDebugRemover {
     }
 
     fn clear_arrow_body(arrow: &mut ArrowExpr) {
-        arrow.body = Box::new(BlockStmtOrExpr::BlockStmt(BlockStmt {
+        *arrow.body = BlockStmtOrExpr::BlockStmt(BlockStmt {
             span: Default::default(),
             ctxt: Default::default(),
             stmts: Vec::new(),
-        }));
+        });
     }
 }
 
@@ -223,10 +229,7 @@ struct AntiDebugScan {
 
 impl AntiDebugScan {
     fn is_match(&self) -> bool {
-        self.has_now
-            && self.has_threshold
-            && self.has_scramble_loop
-            && !self.return_with_value
+        self.has_now && self.has_threshold && self.has_scramble_loop && !self.return_with_value
     }
 }
 
@@ -250,10 +253,10 @@ impl Visit for AntiDebugScan {
     }
 
     fn visit_return_stmt(&mut self, stmt: &ReturnStmt) {
-        if let Some(arg) = &stmt.arg {
-            if !is_undefined_expr(arg) {
-                self.return_with_value = true;
-            }
+        if let Some(arg) = &stmt.arg
+            && !is_undefined_expr(arg)
+        {
+            self.return_with_value = true;
         }
         stmt.visit_children_with(self);
     }
@@ -282,10 +285,10 @@ fn is_now_call(call: &CallExpr) -> bool {
     };
 
     if !member.prop.is_computed() {
-        if let MemberProp::Ident(prop) = &member.prop {
-            if prop.sym.as_ref() != "now" {
-                return false;
-            }
+        if let MemberProp::Ident(prop) = &member.prop
+            && prop.sym.as_ref() != "now"
+        {
+            return false;
         }
     } else if let MemberProp::Computed(comp) = &member.prop {
         if let Expr::Lit(Lit::Str(s)) = &*comp.expr {
@@ -321,15 +324,25 @@ fn is_undefined_expr(expr: &Expr) -> bool {
 fn for_in_scrambles_object(stmt: &ForInStmt) -> bool {
     let (iter_name, obj_name) = match &stmt.left {
         ForHead::VarDecl(var_decl) => {
-            let Some(decl) = var_decl.decls.get(0) else { return false; };
-            let Pat::Ident(binding) = &decl.name else { return false; };
+            let Some(decl) = var_decl.decls.first() else {
+                return false;
+            };
+            let Pat::Ident(binding) = &decl.name else {
+                return false;
+            };
             let iter = binding.id.sym.as_ref();
-            let Expr::Ident(obj) = &*stmt.right else { return false; };
+            let Expr::Ident(obj) = &*stmt.right else {
+                return false;
+            };
             (iter.to_string(), obj.sym.to_string())
         }
         ForHead::Pat(pat) => {
-            let Pat::Ident(ident) = &**pat else { return false; };
-            let Expr::Ident(obj) = &*stmt.right else { return false; };
+            let Pat::Ident(ident) = &**pat else {
+                return false;
+            };
+            let Expr::Ident(obj) = &*stmt.right else {
+                return false;
+            };
             (ident.sym.to_string(), obj.sym.to_string())
         }
         _ => return false,
@@ -370,10 +383,10 @@ fn is_member_obj_prop(member: &MemberExpr, obj_name: &str, prop_name: &str) -> b
     if obj.sym.as_ref() != obj_name {
         return false;
     }
-    if let MemberProp::Computed(comp) = &member.prop {
-        if let Expr::Ident(prop) = &*comp.expr {
-            return prop.sym.as_ref() == prop_name;
-        }
+    if let MemberProp::Computed(comp) = &member.prop
+        && let Expr::Ident(prop) = &*comp.expr
+    {
+        return prop.sym.as_ref() == prop_name;
     }
     false
 }

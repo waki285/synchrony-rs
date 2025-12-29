@@ -3,8 +3,8 @@
 //! This module defines the `Transformer` trait and re-exports the built-in
 //! deobfuscation passes used by the default pipeline.
 
-mod arraymap;
 mod antidebug;
+mod arraymap;
 mod controlflow;
 mod deadcode;
 mod demangle;
@@ -23,8 +23,8 @@ use std::fmt::Debug;
 #[cfg(feature = "cli")]
 use serde_json::Value;
 
-pub use arraymap::ArrayMap;
 pub use antidebug::AntiDebug;
+pub use arraymap::ArrayMap;
 pub use controlflow::ControlFlow;
 pub use deadcode::{DeadCode, DeadCodeSafe};
 pub use demangle::Demangle;
