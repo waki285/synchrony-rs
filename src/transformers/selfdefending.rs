@@ -11,7 +11,7 @@ use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
 use crate::context::Context;
 use crate::error::Result;
-use crate::scope::{ScopeData, analyze};
+use crate::scope::{Id, ScopeData, analyze};
 use crate::transformers::Transformer;
 
 /// SelfDefending transformer.
@@ -57,7 +57,7 @@ impl Transformer for SelfDefending {
 
 struct SelfDefendingRemover {
     constructors: HashSet<String>,
-    self_defending_vars: HashSet<String>,
+    self_defending_vars: HashSet<Id>,
     declared_names: HashSet<String>,
     scope_data: Option<ScopeData>,
 }
@@ -103,7 +103,9 @@ impl VisitMut for SelfDefendingRemover {
             if let Expr::Call(call) = &*expr_stmt.expr {
                 if let Callee::Expr(callee) = &call.callee
                     && let Expr::Ident(ident) = &**callee
-                    && self.self_defending_vars.contains(&ident.sym.to_string())
+                    && self
+                        .self_defending_vars
+                        .contains(&(ident.sym.clone(), ident.ctxt))
                 {
                     *stmt = Stmt::Empty(EmptyStmt {
                         span: Default::default(),
@@ -144,7 +146,9 @@ impl VisitMut for SelfDefendingRemover {
     }
 
     fn visit_mut_var_decl(&mut self, decl: &mut VarDecl) {
-        for declarator in &decl.decls {
+        let mut decls_to_remove: Vec<usize> = Vec::new();
+
+        for (idx, declarator) in decl.decls.iter().enumerate() {
             if let Pat::Ident(binding) = &declarator.name
                 && let Some(init) = &declarator.init
             {
@@ -158,19 +162,20 @@ impl VisitMut for SelfDefendingRemover {
                 };
 
                 if is_guard || is_self_defending_expr(init) {
-                    self.self_defending_vars.insert(binding.id.sym.to_string());
+                    self.self_defending_vars
+                        .insert((binding.id.sym.clone(), binding.id.ctxt));
+                    decls_to_remove.push(idx);
                 }
             }
         }
 
         decl.visit_mut_children_with(self);
 
-        decl.decls.retain(|declarator| {
-            let Pat::Ident(binding) = &declarator.name else {
-                return true;
-            };
-            !self.self_defending_vars.contains(binding.id.sym.as_ref())
-        });
+        if !decls_to_remove.is_empty() {
+            for idx in decls_to_remove.into_iter().rev() {
+                decl.decls.remove(idx);
+            }
+        }
     }
 
     fn visit_mut_assign_expr(&mut self, expr: &mut AssignExpr) {
@@ -332,7 +337,7 @@ fn is_self_defending_function(func: &Function) -> bool {
 #[derive(Default)]
 struct SelfDefendingCollector {
     constructors: HashSet<String>,
-    self_defending_vars: HashSet<String>,
+    self_defending_vars: HashSet<Id>,
     declared_names: HashSet<String>,
 }
 
@@ -341,7 +346,8 @@ impl Visit for SelfDefendingCollector {
         if is_self_defending_function(&decl.function) {
             let name = decl.ident.sym.to_string();
             self.constructors.insert(name.clone());
-            self.self_defending_vars.insert(name);
+            self.self_defending_vars
+                .insert((decl.ident.sym.clone(), decl.ident.ctxt));
         }
         self.declared_names.insert(decl.ident.sym.to_string());
         decl.visit_children_with(self);
@@ -361,7 +367,8 @@ impl Visit for SelfDefendingCollector {
             && let Some(init) = &decl.init
             && (is_self_defending_expr(init) || is_self_defending_call_expr(init))
         {
-            self.self_defending_vars.insert(binding.id.sym.to_string());
+            self.self_defending_vars
+                .insert((binding.id.sym.clone(), binding.id.ctxt));
         }
         decl.visit_children_with(self);
     }
@@ -397,7 +404,8 @@ impl Visit for SelfDefendingCollector {
         if let AssignTarget::Simple(SimpleAssignTarget::Ident(ident)) = &expr.left
             && (is_self_defending_expr(&expr.right) || is_self_defending_call_expr(&expr.right))
         {
-            self.self_defending_vars.insert(ident.id.sym.to_string());
+            self.self_defending_vars
+                .insert((ident.id.sym.clone(), ident.id.ctxt));
         }
         expr.visit_children_with(self);
     }

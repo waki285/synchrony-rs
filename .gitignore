@@ -48,10 +48,7 @@ sample/report.json
 
 dist/
 
-scratch/
-!scratch/config.js
-!scratch/index.js
-
+sample/tmp_*
 # Added by cargo
 
 /target

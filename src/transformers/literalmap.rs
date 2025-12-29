@@ -47,7 +47,7 @@ impl Transformer for LiteralMap {
 
     fn transform(&self, context: &mut Context) -> Result<()> {
         // First, do the demap transformation
-        let mut visitor = LiteralMapVisitor::new(context.remove_garbage);
+        let mut visitor = LiteralMapVisitor::new();
         context.ast.visit_mut_with(&mut visitor);
 
         // Then, do the literals transformation (replace read-only variables)
@@ -184,19 +184,13 @@ impl LiteralValue {
 struct LiteralMapVisitor {
     /// Map from variable name to property map
     maps: HashMap<String, HashMap<String, LiteralValue>>,
-    /// Variables to remove
-    vars_to_remove: Vec<String>,
-    /// Whether to remove garbage
-    remove_garbage: bool,
 }
 
 impl LiteralMapVisitor {
     #[must_use]
-    fn new(remove_garbage: bool) -> Self {
+    fn new() -> Self {
         Self {
             maps: HashMap::new(),
-            vars_to_remove: Vec::new(),
-            remove_garbage,
         }
     }
 
@@ -289,26 +283,11 @@ impl VisitMut for LiteralMapVisitor {
                 let name = binding.id.sym.to_string();
                 let map = Self::extract_literal_map(obj);
                 self.maps.insert(name.clone(), map);
-
-                if self.remove_garbage {
-                    self.vars_to_remove.push(name);
-                }
             }
         }
 
         // Then visit children so member expressions can be replaced.
         decl.visit_mut_children_with(self);
-
-        // Remove variable declarations that were converted to maps
-        if self.remove_garbage {
-            decl.decls.retain(|d| {
-                if let Pat::Ident(binding) = &d.name {
-                    !self.vars_to_remove.contains(&binding.id.sym.to_string())
-                } else {
-                    true
-                }
-            });
-        }
     }
 
     fn visit_mut_expr(&mut self, expr: &mut Expr) {
@@ -483,5 +462,25 @@ function demo() {
         let result = deob.deobfuscate_source(code, None).unwrap();
         assert!(!result.contains("map.a"));
         assert!(result.contains("\"x\""));
+    }
+
+    #[test]
+    fn test_literal_map_keeps_object_when_used_as_value() {
+        use std::sync::Arc;
+
+        use crate::deobfuscator::DeobfuscateOptions;
+
+        let deob = Deobfuscator::new();
+        let code = r#"
+function use(obj) { return obj.a; }
+const map = { a: "x", b: "y" };
+console.log(map.a, use(map));
+"#;
+        let mut options = DeobfuscateOptions::default();
+        options.custom_transformers = Some(vec![Arc::new(LiteralMap::new())]);
+        let result = deob.deobfuscate_source(code, Some(options)).unwrap();
+        assert!(result.contains("\"x\""));
+        assert!(result.contains("use(map)"));
+        assert!(result.contains("const map"));
     }
 }

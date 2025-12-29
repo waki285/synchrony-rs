@@ -4,6 +4,7 @@
 //! deobfuscation passes used by the default pipeline.
 
 mod arraymap;
+mod antidebug;
 mod controlflow;
 mod deadcode;
 mod demangle;
@@ -23,6 +24,7 @@ use std::fmt::Debug;
 use serde_json::Value;
 
 pub use arraymap::ArrayMap;
+pub use antidebug::AntiDebug;
 pub use controlflow::ControlFlow;
 pub use deadcode::{DeadCode, DeadCodeSafe};
 pub use demangle::Demangle;
@@ -72,6 +74,7 @@ pub struct TransformerConfig {
 /// Create a transformer by name
 pub fn create_transformer(name: &str) -> Result<TransformerBox> {
     match name.to_lowercase().as_str() {
+        "antidebug" | "anti_debug" => Ok(Arc::new(AntiDebug::new())),
         "simplify" => Ok(Arc::new(Simplify::new())),
         "deadcode" => Ok(Arc::new(DeadCode::new())),
         "memberexpressioncleaner" => Ok(Arc::new(MemberExpressionCleaner::new())),
