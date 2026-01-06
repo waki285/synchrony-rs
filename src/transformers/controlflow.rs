@@ -732,11 +732,13 @@ impl ControlFlowDeflattener {
                 }
             }
 
-            if shuffle_arr.is_empty() || start_idx.is_none() {
+            if shuffle_arr.is_empty() {
                 continue;
             }
 
-            let start_idx = start_idx.unwrap();
+            let Some(start_idx) = start_idx else {
+                continue;
+            };
             if start_idx < 0 {
                 continue;
             }

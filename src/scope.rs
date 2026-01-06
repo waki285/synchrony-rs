@@ -246,7 +246,9 @@ impl Storage for ScopeData {
         if self.scopes.is_empty() {
             self.scopes.push(ScopeInfo::default());
         }
-        self.scopes.last_mut().unwrap()
+        self.scopes
+            .last_mut()
+            .expect("scope stack should have at least one scope")
     }
 
     fn merge(&mut self, kind: ScopeKind, child: Self) {

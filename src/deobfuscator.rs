@@ -21,6 +21,7 @@ use crate::transformers::{self, TransformerBox};
 
 /// Source type for parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[expect(clippy::exhaustive_enums)]
 pub enum SourceType {
     /// Parse as ES module
     Module,

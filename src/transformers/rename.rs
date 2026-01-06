@@ -162,7 +162,9 @@ impl ScopeAwareRenamer {
     }
 
     fn current_scope(&mut self) -> &mut Scope {
-        self.scope_stack.last_mut().unwrap()
+        self.scope_stack
+            .last_mut()
+            .expect("scope stack should have at least one scope")
     }
 
     fn generate_name(&mut self, prefix: &str) -> String {

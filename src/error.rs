@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// Errors returned by the deobfuscator APIs.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum DeobfuscateError {
     #[error("Failed to parse JavaScript: {0}")]
     ParseError(String),

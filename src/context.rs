@@ -12,6 +12,7 @@ use crate::transformers::TransformerBox;
 
 /// Decoder function types for string array decoding
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum DecoderFunctionType {
     Simple,
     Base64,
@@ -45,6 +46,7 @@ pub struct DecoderReference {
 
 /// Type of string array storage
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum StringArrayType {
     Function,
     Array,

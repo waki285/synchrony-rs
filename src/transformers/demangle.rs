@@ -79,7 +79,9 @@ impl VisitMut for DemangleProxyVisitor {
             }
 
             // Last statement must be a return
-            let last = non_empty.last().unwrap();
+            let last = non_empty
+                .last()
+                .expect("non_empty has length 2 after earlier check");
             if let Stmt::Return(ret) = last
                 && let Some(arg) = &ret.arg
             {

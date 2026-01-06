@@ -14,8 +14,9 @@ use crate::transformers::Transformer;
 
 // Only replace if the property accessor matches this regex
 // Will not match things like "content-type" or "123"
-static VALID_DOT_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[a-zA-Z_$][a-zA-Z0-9_$]*$").unwrap());
+static VALID_DOT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[a-zA-Z_$][a-zA-Z0-9_$]*$").expect("valid identifier regex should compile")
+});
 
 /// MemberExpressionCleaner transformer.
 ///
