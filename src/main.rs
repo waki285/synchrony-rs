@@ -3,6 +3,8 @@
 //! A fast JavaScript deobfuscator written in Rust.
 
 #![cfg(feature = "cli")]
+#![expect(clippy::print_stderr, reason = "CLI tool should print output to stderr")]
+#![expect(clippy::print_stdout, reason = "CLI tool should print output to stdout")]
 
 use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
