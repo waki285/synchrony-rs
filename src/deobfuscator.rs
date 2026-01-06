@@ -329,6 +329,7 @@ impl Deobfuscator {
         for i in 0..context.transformers.len() {
             // We need to temporarily take the transformer out to avoid borrow issues
             // This is safe because we're iterating by index
+            #[expect(clippy::borrow_as_ptr)]
             let transformer = unsafe { &*(&context.transformers[i] as *const TransformerBox) };
             crate::log_info!("Running {} transformer", transformer.name());
             transformer.transform(context)?;
