@@ -95,10 +95,10 @@ impl DecoderHelperFinder {
 
 impl Visit for DecoderHelperFinder {
     fn visit_fn_decl(&mut self, func: &FnDecl) {
-        if let Some(body) = &func.function.body {
-            if let Some(charset) = Self::find_base91_charset(&body.stmts) {
-                self.record_helper(func.ident.sym.to_string(), charset);
-            }
+        if let Some(body) = &func.function.body
+            && let Some(charset) = Self::find_base91_charset(&body.stmts)
+        {
+            self.record_helper(func.ident.sym.to_string(), charset);
         }
 
         func.visit_children_with(self);
@@ -115,10 +115,10 @@ impl Visit for DecoderHelperFinder {
 
             match &**init {
                 Expr::Fn(fn_expr) => {
-                    if let Some(body) = &fn_expr.function.body {
-                        if let Some(charset) = Self::find_base91_charset(&body.stmts) {
-                            self.record_helper(binding.id.sym.to_string(), charset);
-                        }
+                    if let Some(body) = &fn_expr.function.body
+                        && let Some(charset) = Self::find_base91_charset(&body.stmts)
+                    {
+                        self.record_helper(binding.id.sym.to_string(), charset);
                     }
                 }
                 Expr::Arrow(arrow) => {

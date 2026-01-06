@@ -440,10 +440,8 @@ fn collect_pat_names(pat: &Pat, names: &mut HashSet<String>) {
             names.insert(binding.id.sym.to_string());
         }
         Pat::Array(arr) => {
-            for elem in &arr.elems {
-                if let Some(pat) = elem {
-                    collect_pat_names(pat, names);
-                }
+            for pat in arr.elems.iter().flatten() {
+                collect_pat_names(pat, names);
             }
         }
         Pat::Object(obj) => {
