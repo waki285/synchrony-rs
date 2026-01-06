@@ -2029,7 +2029,7 @@ pub fn generate_random_words(mt: &mut MersenneTwister, length: usize) -> Vec<Str
     for i in 0..length {
         let min = i * word_count / length;
         let max = (i + 1) * word_count / length;
-        let rand = (mt.random() * (max - min) as f64 + min as f64) as usize;
+        let rand = mt.random().mul_add((max - min) as f64, min as f64) as usize;
 
         let word = WORD_LIST[rand];
         // Capitalize first letter

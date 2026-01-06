@@ -228,7 +228,7 @@ struct AntiDebugScan {
 }
 
 impl AntiDebugScan {
-    fn is_match(&self) -> bool {
+    const fn is_match(&self) -> bool {
         self.has_now && self.has_threshold && self.has_scramble_loop && !self.return_with_value
     }
 }
@@ -269,7 +269,7 @@ impl Visit for AntiDebugScan {
     }
 }
 
-fn extract_number_literal(expr: &Expr) -> f64 {
+const fn extract_number_literal(expr: &Expr) -> f64 {
     match expr {
         Expr::Lit(Lit::Num(num)) => num.value,
         _ => -1.0,

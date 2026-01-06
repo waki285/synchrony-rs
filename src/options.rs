@@ -6,7 +6,7 @@ use crate::deobfuscator::SourceType;
 
 /// Map numeric ECMAScript version to SWC enum.
 #[must_use]
-pub fn map_es_version_num(value: u32) -> Option<EsVersion> {
+pub const fn map_es_version_num(value: u32) -> Option<EsVersion> {
     match value {
         3 => Some(EsVersion::Es3),
         5 => Some(EsVersion::Es5),

@@ -235,7 +235,7 @@ impl Storage for ScopeData {
     }
 
     fn new_child(&mut self) -> Self {
-        ScopeData::default()
+        Self::default()
     }
 
     fn add_property_atom(&mut self, _atom: swc_atoms::Wtf8Atom) {
@@ -290,7 +290,7 @@ impl Storage for ScopeData {
     }
 
     fn report_usage(&mut self, _ctx: Ctx, id: Id) {
-        let var = self.vars.entry(id.clone()).or_default();
+        let var = self.vars.entry(id).or_default();
         var.ref_count += 1;
         var.usage_count += 1;
     }

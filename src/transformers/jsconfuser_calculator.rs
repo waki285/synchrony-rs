@@ -83,20 +83,20 @@ impl CalcOperator {
     #[must_use]
     const fn to_binary_op(self) -> BinaryOp {
         match self {
-            CalcOperator::Add => BinaryOp::Add,
-            CalcOperator::Sub => BinaryOp::Sub,
-            CalcOperator::Mul => BinaryOp::Mul,
-            CalcOperator::Div => BinaryOp::Div,
+            Self::Add => BinaryOp::Add,
+            Self::Sub => BinaryOp::Sub,
+            Self::Mul => BinaryOp::Mul,
+            Self::Div => BinaryOp::Div,
         }
     }
 
     #[must_use]
     const fn from_binary_op(op: &BinaryOp) -> Option<Self> {
         match op {
-            BinaryOp::Add => Some(CalcOperator::Add),
-            BinaryOp::Sub => Some(CalcOperator::Sub),
-            BinaryOp::Mul => Some(CalcOperator::Mul),
-            BinaryOp::Div => Some(CalcOperator::Div),
+            BinaryOp::Add => Some(Self::Add),
+            BinaryOp::Sub => Some(Self::Sub),
+            BinaryOp::Mul => Some(Self::Mul),
+            BinaryOp::Div => Some(Self::Div),
             _ => None,
         }
     }

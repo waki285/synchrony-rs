@@ -201,7 +201,7 @@ struct DecoderCallFinder<'a> {
 }
 
 impl<'a> DecoderCallFinder<'a> {
-    fn new(decoder_names: &'a HashSet<String>) -> Self {
+    const fn new(decoder_names: &'a HashSet<String>) -> Self {
         Self {
             decoder_names,
             found: false,

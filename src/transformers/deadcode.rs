@@ -327,7 +327,7 @@ struct ObfuscatedDeadCodeRemover<'a> {
 }
 
 impl<'a> ObfuscatedDeadCodeRemover<'a> {
-    fn new(scope_data: &'a crate::scope::ScopeData) -> Self {
+    const fn new(scope_data: &'a crate::scope::ScopeData) -> Self {
         Self {
             scope_data,
             changed: false,
@@ -637,7 +637,7 @@ impl Visit for NoopFunctionCollector {
 }
 
 impl<'a> SafeNoopCallRemover<'a> {
-    fn new(scope_data: &'a crate::scope::ScopeData, noop_functions: &'a HashSet<String>) -> Self {
+    const fn new(scope_data: &'a crate::scope::ScopeData, noop_functions: &'a HashSet<String>) -> Self {
         Self {
             scope_data,
             noop_functions,
@@ -1014,7 +1014,7 @@ struct UndefinedObfuscatedCallRemover<'a> {
 }
 
 impl<'a> UndefinedObfuscatedCallRemover<'a> {
-    fn new(scope_data: &'a crate::scope::ScopeData) -> Self {
+    const fn new(scope_data: &'a crate::scope::ScopeData) -> Self {
         Self { scope_data }
     }
 

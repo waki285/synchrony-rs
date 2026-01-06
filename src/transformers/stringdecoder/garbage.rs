@@ -12,7 +12,7 @@ pub(super) struct ObfuscationGarbageRemover<'a> {
 }
 
 impl<'a> ObfuscationGarbageRemover<'a> {
-    pub(super) fn new(
+    pub(super) const fn new(
         scope_data: &'a ScopeData,
         candidates: &'a HashSet<String>,
         candidate_functions: &'a HashSet<String>,
@@ -54,7 +54,7 @@ pub(super) struct ObfuscationAliasCleaner<'a> {
 }
 
 impl<'a> ObfuscationAliasCleaner<'a> {
-    pub(super) fn new(scope_data: &'a ScopeData, candidates: &'a HashSet<String>) -> Self {
+    pub(super) const fn new(scope_data: &'a ScopeData, candidates: &'a HashSet<String>) -> Self {
         Self {
             scope_data,
             candidates,
@@ -100,7 +100,7 @@ pub(super) struct UnusedObfuscatedRemover<'a> {
 }
 
 impl<'a> UnusedObfuscatedRemover<'a> {
-    pub(super) fn new(scope_data: &'a ScopeData) -> Self {
+    pub(super) const fn new(scope_data: &'a ScopeData) -> Self {
         Self {
             scope_data,
             changed: false,

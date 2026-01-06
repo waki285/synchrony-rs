@@ -167,7 +167,7 @@ struct ControlFlowStoragePass<'a> {
 }
 
 impl<'a> ControlFlowStoragePass<'a> {
-    fn new(
+    const fn new(
         storage_nodes: &'a mut HashMap<String, ControlFlowStorage>,
         remove_garbage: bool,
     ) -> Self {
@@ -471,7 +471,7 @@ struct ControlFlowReplacer {
 }
 
 impl ControlFlowReplacer {
-    fn new(storage: ControlFlowStorage) -> Self {
+    const fn new(storage: ControlFlowStorage) -> Self {
         Self { storage }
     }
 
@@ -597,7 +597,7 @@ impl VisitMut for ParameterSubstitutor {
 struct ControlFlowDeflattener;
 
 impl ControlFlowDeflattener {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self
     }
 

@@ -125,9 +125,9 @@ enum SourceTypeArg {
 impl From<SourceTypeArg> for SourceType {
     fn from(arg: SourceTypeArg) -> Self {
         match arg {
-            SourceTypeArg::Module => SourceType::Module,
-            SourceTypeArg::Script => SourceType::Script,
-            SourceTypeArg::Both => SourceType::Both,
+            SourceTypeArg::Module => Self::Module,
+            SourceTypeArg::Script => Self::Script,
+            SourceTypeArg::Both => Self::Both,
         }
     }
 }
@@ -430,7 +430,7 @@ fn deobfuscate_file(
     let output_path = output.unwrap_or_else(|| {
         let stem = input.file_stem().unwrap_or_default().to_string_lossy();
         let ext = input.extension().unwrap_or_default().to_string_lossy();
-        let parent = input.parent().unwrap_or(Path::new("."));
+        let parent = input.parent().unwrap_or_else(|| Path::new("."));
 
         if ext.is_empty() {
             parent.join(format!("{}.cleaned", stem))

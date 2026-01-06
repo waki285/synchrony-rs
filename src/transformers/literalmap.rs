@@ -99,7 +99,7 @@ impl VisitMut for FunctionLiteralsVisitor {
 }
 
 impl FunctionLiteralsVisitor {
-    fn process_function_body(&mut self, body: &mut BlockStmt) {
+    fn process_function_body(&self, body: &mut BlockStmt) {
         // Create a temporary module to analyze the function body
         let temp_module = Module {
             span: Default::default(),
@@ -146,12 +146,12 @@ impl LiteralValue {
     #[must_use]
     fn to_expr(&self) -> Expr {
         match self {
-            LiteralValue::String(s) => Expr::Lit(Lit::Str(Str {
+            Self::String(s) => Expr::Lit(Lit::Str(Str {
                 span: Default::default(),
                 value: s.as_str().into(),
                 raw: None,
             })),
-            LiteralValue::Number(n) => {
+            Self::Number(n) => {
                 if *n < 0.0 {
                     Expr::Unary(UnaryExpr {
                         span: Default::default(),
@@ -170,11 +170,11 @@ impl LiteralValue {
                     }))
                 }
             }
-            LiteralValue::Bool(b) => Expr::Lit(Lit::Bool(Bool {
+            Self::Bool(b) => Expr::Lit(Lit::Bool(Bool {
                 span: Default::default(),
                 value: *b,
             })),
-            LiteralValue::Null => Expr::Lit(Lit::Null(Null {
+            Self::Null => Expr::Lit(Lit::Null(Null {
                 span: Default::default(),
             })),
         }

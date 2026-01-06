@@ -154,7 +154,7 @@ impl Deobfuscator {
 
     /// Create a new deobfuscator with the given options
     #[must_use]
-    pub fn with_options(options: DeobfuscateOptions) -> Self {
+    pub const fn with_options(options: DeobfuscateOptions) -> Self {
         Self {
             default_options: options,
         }
@@ -251,7 +251,7 @@ impl Deobfuscator {
 
             let mut emitter = Emitter {
                 cfg: config,
-                cm: cm.clone(),
+                cm: cm,
                 comments: None,
                 wr: writer,
             };

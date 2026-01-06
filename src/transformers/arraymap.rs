@@ -68,13 +68,13 @@ impl ArrayValue {
     #[must_use]
     fn to_expr(&self) -> Option<Expr> {
         match self {
-            ArrayValue::Null => None,
-            ArrayValue::String(s) => Some(Expr::Lit(Lit::Str(Str {
+            Self::Null => None,
+            Self::String(s) => Some(Expr::Lit(Lit::Str(Str {
                 span: Default::default(),
                 value: s.as_str().into(),
                 raw: None,
             }))),
-            ArrayValue::Number(n) => {
+            Self::Number(n) => {
                 if *n < 0.0 {
                     Some(Expr::Unary(UnaryExpr {
                         span: Default::default(),
@@ -93,7 +93,7 @@ impl ArrayValue {
                     })))
                 }
             }
-            ArrayValue::Bool(b) => Some(Expr::Lit(Lit::Bool(Bool {
+            Self::Bool(b) => Some(Expr::Lit(Lit::Bool(Bool {
                 span: Default::default(),
                 value: *b,
             }))),

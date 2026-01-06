@@ -345,7 +345,7 @@ impl Visit for SelfDefendingCollector {
     fn visit_fn_decl(&mut self, decl: &FnDecl) {
         if is_self_defending_function(&decl.function) {
             let name = decl.ident.sym.to_string();
-            self.constructors.insert(name.clone());
+            self.constructors.insert(name);
             self.self_defending_vars
                 .insert((decl.ident.sym.clone(), decl.ident.ctxt));
         }
@@ -516,7 +516,7 @@ impl SelfDefendingScan {
         self.is_regexp_method_call(&unary.arg)
     }
 
-    fn is_self_defending(&self) -> bool {
+    const fn is_self_defending(&self) -> bool {
         if self.has_regex
             && (self.has_to_string
                 || self.has_constructor

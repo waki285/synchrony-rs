@@ -219,7 +219,7 @@ impl VisitMut for FunctionReferenceFinder<'_> {
                     }
 
                     self.references.push(DecoderReference {
-                        identifier: fn_name.clone(),
+                        identifier: fn_name,
                         real_identifier: callee_name,
                         additional_offset,
                         index_argument,

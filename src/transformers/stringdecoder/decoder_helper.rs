@@ -143,7 +143,7 @@ struct IndexOfFinder<'a> {
 
 impl<'a> IndexOfFinder<'a> {
     #[must_use]
-    fn new(target: &'a str) -> Self {
+    const fn new(target: &'a str) -> Self {
         Self {
             target,
             found: false,
@@ -192,7 +192,7 @@ struct InlineBase91Finder {
 
 impl InlineBase91Finder {
     #[must_use]
-    fn new() -> Self {
+    const fn new() -> Self {
         Self { found: None }
     }
 

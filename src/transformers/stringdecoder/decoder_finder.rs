@@ -21,7 +21,7 @@ pub(super) struct DecoderFunctionFinder<'a> {
 
 impl<'a> DecoderFunctionFinder<'a> {
     #[must_use]
-    pub(super) fn new(
+    pub(super) const fn new(
         string_arrays: &'a [StringArray],
         helper_decoders: &'a HashMap<String, DecoderHelper>,
     ) -> Self {
