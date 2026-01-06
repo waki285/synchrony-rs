@@ -1024,10 +1024,10 @@ impl<'a> UndefinedObfuscatedCallRemover<'a> {
             return false;
         }
         let id = (ident.sym.clone(), ident.ctxt);
-        match self.scope_data.vars.get(&id) {
-            None => true,
-            Some(info) => !info.declared && !info.exported,
-        }
+        self.scope_data
+            .vars
+            .get(&id)
+            .is_none_or(|info| !info.declared && !info.exported)
     }
 }
 
@@ -1116,7 +1116,7 @@ fn extract_iife_expr<'a>(expr: &'a Expr) -> Option<IifeCallee<'a>> {
         Expr::Arrow(arrow) => Some(IifeCallee::Arrow(arrow)),
         Expr::Paren(paren) => extract_iife_expr(&paren.expr),
         Expr::Seq(seq) => {
-            if let Some(last) = seq.exprs.last() {
+            seq.exprs.last().and_then(|last| {
                 if seq.exprs[..seq.exprs.len().saturating_sub(1)]
                     .iter()
                     .all(|expr| is_pure_expr(expr))
@@ -1125,9 +1125,7 @@ fn extract_iife_expr<'a>(expr: &'a Expr) -> Option<IifeCallee<'a>> {
                 } else {
                     None
                 }
-            } else {
-                None
-            }
+            })
         }
         _ => None,
     }

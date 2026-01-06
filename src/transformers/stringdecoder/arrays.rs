@@ -93,15 +93,13 @@ impl VisitMut for StringArrayFinder {
             let array_strings = match &stmts[0] {
                 Stmt::Decl(Decl::Var(var_decl)) if var_decl.decls.len() == 1 => {
                     let decl = &var_decl.decls[0];
-                    if let Some(init) = &decl.init {
+                    decl.init.as_ref().and_then(|init| {
                         if let Expr::Array(arr) = &**init {
                             Self::extract_string_array(arr)
                         } else {
                             None
                         }
-                    } else {
-                        None
-                    }
+                    })
                 }
                 _ => None,
             };

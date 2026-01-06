@@ -524,7 +524,7 @@ impl VisitMut for SwitchFixer {
 }
 
 impl SwitchFixer {
-    fn process_block(&mut self, block: &mut BlockStmt) {
+    fn process_block(&self, block: &mut BlockStmt) {
         // Build a map of variable declarations
         let mut var_inits: HashMap<String, Box<Expr>> = HashMap::new();
 

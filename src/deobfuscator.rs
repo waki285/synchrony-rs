@@ -189,10 +189,8 @@ impl Deobfuscator {
             SourceType::Script => self.parse_as_script(&fm, syntax, &handler, cm, ecma_version),
             SourceType::Both => {
                 // Try module first, then script
-                match self.parse_as_module(&fm, syntax, &handler, cm.clone(), ecma_version) {
-                    Ok(result) => Ok(result),
-                    Err(_) => self.parse_as_script(&fm, syntax, &handler, cm, ecma_version),
-                }
+                self.parse_as_module(&fm, syntax, &handler, cm.clone(), ecma_version)
+                    .or_else(|_| self.parse_as_script(&fm, syntax, &handler, cm, ecma_version))
             }
         }
     }
@@ -251,7 +249,7 @@ impl Deobfuscator {
 
             let mut emitter = Emitter {
                 cfg: config,
-                cm: cm,
+                cm,
                 comments: None,
                 wr: writer,
             };

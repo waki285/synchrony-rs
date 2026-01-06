@@ -182,7 +182,7 @@ impl VisitMut for ArrayMapVisitor {
 }
 
 impl ArrayMapVisitor {
-    fn process_block(&mut self, stmts: &mut Vec<Stmt>) {
+    fn process_block(&self, stmts: &mut Vec<Stmt>) {
         // Find array declarations at the start of the block
         let mut array_maps: HashMap<String, Vec<ArrayValue>> = HashMap::new();
         let mut decls_to_remove: Vec<usize> = Vec::new();

@@ -649,7 +649,7 @@ impl VisitMut for ControlFlowDeflattener {
 }
 
 impl ControlFlowDeflattener {
-    fn process_statement_list(&mut self, stmts: &mut Vec<Stmt>) {
+    fn process_statement_list(&self, stmts: &mut Vec<Stmt>) {
         let mut replacements: Vec<(usize, Vec<Stmt>)> = Vec::new();
         let mut remove_decl_indices: Vec<usize> = Vec::new();
 
@@ -796,7 +796,7 @@ impl ControlFlowDeflattener {
         stmts.retain(|stmt| !matches!(stmt, Stmt::Empty(_)));
     }
 
-    fn process_module_items(&mut self, items: &mut Vec<ModuleItem>) {
+    fn process_module_items(&self, items: &mut Vec<ModuleItem>) {
         let mut stmts: Vec<Stmt> = items
             .iter()
             .filter_map(|item| match item {

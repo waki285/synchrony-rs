@@ -311,10 +311,10 @@ fn is_undefined_obfuscated_call(call: &CallExpr, scope_data: &ScopeData) -> bool
     }
 
     let id = (ident.sym.clone(), ident.ctxt);
-    match scope_data.vars.get(&id) {
-        None => true,
-        Some(info) => !info.declared && !info.exported,
-    }
+    scope_data
+        .vars
+        .get(&id)
+        .is_none_or(|info| !info.declared && !info.exported)
 }
 
 fn is_self_defending_arrow(arrow: &ArrowExpr) -> bool {

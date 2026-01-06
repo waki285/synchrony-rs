@@ -180,11 +180,10 @@ pub(super) fn parse_index_str(value: &str) -> Option<i32> {
         return None;
     }
 
-    let (neg, rest) = if let Some(stripped) = trimmed.strip_prefix('-') {
-        (true, stripped)
-    } else {
-        (false, trimmed)
-    };
+    let (neg, rest) =
+        trimmed
+            .strip_prefix('-')
+            .map_or((false, trimmed), |stripped| (true, stripped));
 
     let parsed = if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
         i32::from_str_radix(hex, 16).ok()?

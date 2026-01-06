@@ -605,13 +605,11 @@ impl VisitMut for FixupVisitor {
 
         // Remove declarators with EmptyStatement init
         decl.decls.retain(|d| {
-            if let Some(init) = &d.init {
+            d.init.as_ref().is_none_or(|init| {
                 // Can't check for EmptyStatement directly in expression context
                 // This is handled elsewhere
                 !matches!(&**init, Expr::Invalid(_))
-            } else {
-                true
-            }
+            })
         });
     }
 }

@@ -2043,10 +2043,9 @@ pub fn generate_random_words(mt: &mut MersenneTwister, length: usize) -> Vec<Str
 #[must_use]
 fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-    }
+    chars
+        .next()
+        .map_or_else(String::new, |first| first.to_uppercase().collect::<String>() + chars.as_str())
 }
 
 #[cfg(test)]
