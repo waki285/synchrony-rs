@@ -831,6 +831,21 @@ impl ControlFlowDeflattener {
 mod tests {
     use super::*;
     use crate::Deobfuscator;
+    use crate::deobfuscator::DeobfuscateOptions;
+    use crate::transformers::Simplify;
+    use std::sync::Arc;
+
+    fn deob_with_controlflow(code: &str) -> String {
+        let deob = Deobfuscator::new();
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![
+                Arc::new(ControlFlow::new()),
+                Arc::new(Simplify::new()),
+            ]),
+            ..Default::default()
+        };
+        deob.deobfuscate_source(code, Some(options)).unwrap()
+    }
 
     #[test]
     fn test_controlflow_new() {
@@ -840,45 +855,40 @@ mod tests {
 
     #[test]
     fn test_controlflow_literal_replacement() {
-        let deob = Deobfuscator::new();
         let code = r#"var _0x = { "ABcDe": "hello" }; console.log(_0x.ABcDe);"#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_controlflow(code);
         assert!(result.contains("\"hello\""));
     }
 
     #[test]
     fn test_controlflow_literal_replacement_computed() {
-        let deob = Deobfuscator::new();
         let code = r#"var _0x = { "ABcDe": "hello" }; console.log(_0x["ABcDe"]);"#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_controlflow(code);
         assert!(result.contains("\"hello\""));
     }
 
     #[test]
     fn test_controlflow_function_inline() {
-        let deob = Deobfuscator::new();
         let code = r#"var _0x = { "ABcDe": function(a, b) { return a + b; } }; _0x.ABcDe(1, 2);"#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_controlflow(code);
         assert!(result.contains("3"));
     }
 
     #[test]
     fn test_controlflow_alias_replacement() {
-        let deob = Deobfuscator::new();
         let code = r#"
 var _0xabcde = { "ABCDE": "hello", "FGhIj": function(a, b) { return a + b; } };
 var _alias = _0xabcde;
 console.log(_alias.ABCDE);
 _alias.FGhIj(1, 2);
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_controlflow(code);
         assert!(result.contains("\"hello\""));
         assert!(result.contains("3"));
     }
 
     #[test]
     fn test_populate_empty_objects() {
-        let deob = Deobfuscator::new();
         let code = r#"
 function test() {
     var obj = {};
@@ -887,14 +897,16 @@ function test() {
     return obj;
 }
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_controlflow(code);
         // The object should be populated inline
         assert!(result.contains("a:") || result.contains("a :"));
+        assert!(result.contains("b:") || result.contains("b :"));
+        assert!(!result.contains("obj.a ="));
+        assert!(!result.contains("obj.b ="));
     }
 
     #[test]
     fn test_controlflow_deflatten_switch() {
-        let deob = Deobfuscator::new();
         let code = r#"
 var _arr = "0|1|2".split("|");
 var _idx = 0;
@@ -904,9 +916,9 @@ while (true) {
     case '1': b(); continue;
     case '2': c(); break;
   }
-}
+    }
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_controlflow(code);
         assert!(result.contains("a()"));
         assert!(result.contains("b()"));
         assert!(result.contains("c()"));

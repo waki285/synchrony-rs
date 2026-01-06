@@ -434,6 +434,8 @@ impl<'a> VisitMut for LiteralReplacer<'a> {
 mod tests {
     use super::*;
     use crate::Deobfuscator;
+    use crate::deobfuscator::DeobfuscateOptions;
+    use std::sync::Arc;
 
     #[test]
     fn test_literal_value_to_expr() {
@@ -452,24 +454,22 @@ mod tests {
 
     #[test]
     fn test_literal_map_replaces_same_decl_usage() {
-        let deob = Deobfuscator::new();
         let code = r#"
 function demo() {
   const map = { a: "x" }, obj = { val: map.a };
   return obj;
 }
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let mut options = DeobfuscateOptions::default();
+        options.custom_transformers = Some(vec![Arc::new(LiteralMap::new())]);
+        let deob = Deobfuscator::new();
+        let result = deob.deobfuscate_source(code, Some(options)).unwrap();
         assert!(!result.contains("map.a"));
         assert!(result.contains("\"x\""));
     }
 
     #[test]
     fn test_literal_map_keeps_object_when_used_as_value() {
-        use std::sync::Arc;
-
-        use crate::deobfuscator::DeobfuscateOptions;
-
         let deob = Deobfuscator::new();
         let code = r#"
 function use(obj) { return obj.a; }

@@ -384,6 +384,17 @@ impl VisitMut for CalculatorReplacer {
 mod tests {
     use super::*;
     use crate::Deobfuscator;
+    use crate::deobfuscator::DeobfuscateOptions;
+    use std::sync::Arc;
+
+    fn deob_with_calculator(code: &str) -> String {
+        let deob = Deobfuscator::new();
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![Arc::new(JSConfuserCalculator::new())]),
+            ..Default::default()
+        };
+        deob.deobfuscate_source(code, Some(options)).unwrap()
+    }
 
     #[test]
     fn test_jsconfuser_calculator_new() {
@@ -393,7 +404,6 @@ mod tests {
 
     #[test]
     fn test_calculator_basic() {
-        let deob = Deobfuscator::new();
         let code = r#"
 function calc(op, a, b) {
     switch (op) {
@@ -405,14 +415,14 @@ function calc(op, a, b) {
 }
 var result = calc(0, 5, 3);
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_calculator(code);
         // The calculator call should be replaced with direct operation
         assert!(result.contains("5 + 3") || result.contains("8"));
+        assert!(!result.contains("calc(0"));
     }
 
     #[test]
     fn test_calculator_negative_opcode() {
-        let deob = Deobfuscator::new();
         let code = r#"
 function calc(op, a, b) {
     switch (op) {
@@ -422,7 +432,8 @@ function calc(op, a, b) {
 }
 var result = calc(-1, 10, 5);
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_calculator(code);
         assert!(result.contains("10 + 5") || result.contains("15"));
+        assert!(!result.contains("calc(-1"));
     }
 }

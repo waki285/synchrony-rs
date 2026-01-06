@@ -269,6 +269,17 @@ impl VisitMut for ArrayAccessReplacer<'_> {
 mod tests {
     use super::*;
     use crate::Deobfuscator;
+    use crate::deobfuscator::DeobfuscateOptions;
+    use std::sync::Arc;
+
+    fn deob_with_arraymap(code: &str) -> String {
+        let deob = Deobfuscator::new();
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![Arc::new(ArrayMap::new())]),
+            ..Default::default()
+        };
+        deob.deobfuscate_source(code, Some(options)).unwrap()
+    }
 
     #[test]
     fn test_arraymap_new() {
@@ -278,49 +289,52 @@ mod tests {
 
     #[test]
     fn test_arraymap_basic() {
-        let deob = Deobfuscator::new();
         let code = r#"
 function f() {
     var arr = [null, "hello", 42];
     console.log(arr[1], arr[2]);
 }
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_arraymap(code);
         assert!(result.contains("\"hello\""));
         assert!(result.contains("42"));
+        assert!(!result.contains("arr[1]"));
+        assert!(!result.contains("arr[2]"));
     }
 
     #[test]
     fn test_arraymap_with_booleans() {
-        let deob = Deobfuscator::new();
         let code = r#"
 function f() {
     var arr = [null, true, false, "test"];
     return arr[1] && arr[3];
 }
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_arraymap(code);
         assert!(result.contains("true"));
         assert!(result.contains("\"test\""));
+        assert!(!result.contains("arr[1]"));
+        assert!(!result.contains("arr[3]"));
     }
 
     #[test]
     fn test_arraymap_negative_numbers() {
-        let deob = Deobfuscator::new();
         let code = r#"
 function f() {
     var arr = [null, 5, 10];
     return arr[1] + arr[2];
 }
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_arraymap(code);
         // Check that array values are inlined
-        assert!(result.contains("5") || result.contains("10"));
+        assert!(result.contains("5"));
+        assert!(result.contains("10"));
+        assert!(!result.contains("arr[1]"));
+        assert!(!result.contains("arr[2]"));
     }
 
     #[test]
     fn test_arraymap_arrow_function() {
-        let deob = Deobfuscator::new();
         // Arrow function with block body
         let code = r#"
 function outer() {
@@ -331,14 +345,16 @@ function outer() {
     return f;
 }
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_arraymap(code);
         // Arrow functions are processed - check the output
-        assert!(result.contains("\"arrow\"") || result.contains("arr"));
+        assert!(result.contains("\"arrow\""));
+        assert!(result.contains("\"function\""));
+        assert!(!result.contains("arr[1]"));
+        assert!(!result.contains("arr[2]"));
     }
 
     #[test]
     fn test_arraymap_not_starting_with_null() {
-        let deob = Deobfuscator::new();
         // Arrays not starting with null should NOT be replaced
         let code = r#"
 function f() {
@@ -346,22 +362,22 @@ function f() {
     return arr[0];
 }
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_arraymap(code);
         // Should still contain arr[0] since array doesn't start with null
-        assert!(result.contains("arr"));
+        assert!(result.contains("arr[0]"));
     }
 
     #[test]
     fn test_arraymap_multiple_arrays() {
-        let deob = Deobfuscator::new();
         let code = r#"
 function f() {
     var a = [null, "first"];
     console.log(a[1]);
 }
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_arraymap(code);
         assert!(result.contains("console.log(\"first\")"));
+        assert!(!result.contains("a[1]"));
     }
 
     #[test]

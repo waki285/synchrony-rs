@@ -14,6 +14,7 @@ pub enum DecoderFunctionType {
     Simple,
     Base64,
     Rc4,
+    Base91,
 }
 
 /// Information about a string decoder function

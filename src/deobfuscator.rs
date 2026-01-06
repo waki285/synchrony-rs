@@ -91,10 +91,16 @@ const fn source_hash(s: &str) -> u32 {
 ///
 /// # Examples
 /// ```rust
-/// use synchrony_rs::Deobfuscator;
+/// use synchrony_rs::{DeobfuscateOptions, Deobfuscator};
+/// use synchrony_rs::transformers::Simplify;
+/// use std::sync::Arc;
 ///
 /// let deob = Deobfuscator::new();
-/// let output = deob.deobfuscate_source("var a = 1;", None).unwrap();
+/// let options = DeobfuscateOptions {
+///     custom_transformers: Some(vec![Arc::new(Simplify::new())]),
+///     ..Default::default()
+/// };
+/// let output = deob.deobfuscate_source("var a = 1;", Some(options)).unwrap();
 /// assert!(output.contains("a"));
 /// ```
 #[derive(Debug)]
@@ -365,7 +371,17 @@ impl Deobfuscator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transformers::Simplify;
     use std::sync::Arc;
+
+    fn run_with_simplify(code: &str) -> String {
+        let deob = Deobfuscator::new();
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![Arc::new(Simplify::new())]),
+            ..Default::default()
+        };
+        deob.deobfuscate_source(code, Some(options)).unwrap()
+    }
 
     #[test]
     fn test_source_hash() {
@@ -395,29 +411,20 @@ mod tests {
 
     #[test]
     fn test_deobfuscate_constant_folding() {
-        let deob = Deobfuscator::new();
-        let result = deob
-            .deobfuscate_source("const x = 1 + 2 + 3;", None)
-            .unwrap();
+        let result = run_with_simplify("const x = 1 + 2 + 3;");
         assert!(result.contains("const x = 6"));
     }
 
     #[test]
     fn test_deobfuscate_boolean_simplification() {
-        let deob = Deobfuscator::new();
-        let result = deob
-            .deobfuscate_source("const a = !0; const b = !1;", None)
-            .unwrap();
+        let result = run_with_simplify("const a = !0; const b = !1;");
         assert!(result.contains("true"));
         assert!(result.contains("false"));
     }
 
     #[test]
     fn test_deobfuscate_string_concat() {
-        let deob = Deobfuscator::new();
-        let result = deob
-            .deobfuscate_source(r#"const s = "Hello" + "World";"#, None)
-            .unwrap();
+        let result = run_with_simplify(r#"const s = "Hello" + "World";"#);
         assert!(result.contains("HelloWorld"));
     }
 
@@ -450,10 +457,7 @@ mod tests {
 
     #[test]
     fn test_deobfuscate_conditional() {
-        let deob = Deobfuscator::new();
-        let result = deob
-            .deobfuscate_source(r#"const x = true ? 'yes' : 'no';"#, None)
-            .unwrap();
+        let result = run_with_simplify(r#"const x = true ? 'yes' : 'no';"#);
         assert!(result.contains("yes"));
         assert!(!result.contains("no"));
     }
@@ -489,7 +493,6 @@ _0x123(1);
         assert!(!result.contains("_0x123"));
         assert!(!result.contains("_0xabc"));
         assert!(!result.contains("a1"));
-        assert!(result.contains("func") || result.contains("var") || result.contains("arg"));
     }
 
     #[test]

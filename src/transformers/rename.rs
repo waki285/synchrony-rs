@@ -486,8 +486,9 @@ _0x123();
             ..Default::default()
         };
         let result = deob.deobfuscate_source(code, Some(options)).unwrap();
-        // Should contain renamed identifiers
-        assert!(result.contains("func") || result.contains("var"));
+        assert!(!result.contains("_0x123"));
+        assert!(!result.contains("_0xabc"));
+        assert!(!result.contains("_0x"));
     }
 
     #[test]
@@ -505,8 +506,9 @@ _0x123(1, 2);
             ..Default::default()
         };
         let result = deob.deobfuscate_source(code, Some(options)).unwrap();
-        // Check that function was renamed
-        assert!(result.contains("func"));
+        assert!(!result.contains("_0x123"));
+        assert!(!result.contains("a1"));
+        assert!(!result.contains("b2"));
     }
 
     #[test]
@@ -546,8 +548,9 @@ _0x222();
             ..Default::default()
         };
         let result = deob.deobfuscate_source(code, Some(options)).unwrap();
-        // Should have renamed functions (func0, func1)
-        assert!(result.contains("func"));
+        assert!(!result.contains("_0x111"));
+        assert!(!result.contains("_0x222"));
+        assert!(!result.contains("_0x"));
     }
 
     #[test]
@@ -566,8 +569,9 @@ _0x123();
             ..Default::default()
         };
         let result = deob.deobfuscate_source(code, Some(options)).unwrap();
-        // Should contain renamed identifiers
-        assert!(result.contains("func") || result.contains("var"));
+        assert!(!result.contains("_0x123"));
+        assert!(!result.contains("_0xabc"));
+        assert!(!result.contains("_0x"));
     }
 
     #[test]

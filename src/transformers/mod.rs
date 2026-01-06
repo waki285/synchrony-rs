@@ -168,6 +168,12 @@ pub fn default_transformers() -> Vec<TransformerBox> {
 #[must_use]
 pub fn transformers_with_rename() -> Vec<TransformerBox> {
     let mut transformers = default_transformers();
+    if transformers
+        .last()
+        .is_some_and(|transformer| transformer.name() == "DeadCodeSafe")
+    {
+        transformers.pop();
+    }
     transformers.push(Arc::new(Rename::new()));
     transformers.push(Arc::new(DeadCodeSafe::new()));
     transformers

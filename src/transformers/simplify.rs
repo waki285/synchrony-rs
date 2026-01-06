@@ -1123,6 +1123,18 @@ fn collect_pat_bindings(pat: &Pat, declared: &mut HashSet<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Deobfuscator;
+    use crate::deobfuscator::DeobfuscateOptions;
+    use std::sync::Arc;
+
+    fn deob_with_simplify(code: &str) -> String {
+        let deob = Deobfuscator::new();
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![Arc::new(Simplify::new())]),
+            ..Default::default()
+        };
+        deob.deobfuscate_source(code, Some(options)).unwrap()
+    }
 
     #[test]
     fn test_eval_math() {
@@ -1167,98 +1179,64 @@ mod tests {
 
     #[test]
     fn test_negative_hex_string() {
-        use crate::Deobfuscator;
-
-        let deob = Deobfuscator::new();
         // -"0x123" should become -291
         let code = r#"var x = -"0x123";"#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_simplify(code);
         assert!(result.contains("-291"));
     }
 
     #[test]
     fn test_positive_hex_string() {
-        use crate::Deobfuscator;
-
-        let deob = Deobfuscator::new();
         // +"0x100" should become 256
         let code = r#"var x = +"0x100";"#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_simplify(code);
         assert!(result.contains("256"));
     }
 
     #[test]
     fn test_parse_int_string_literal() {
-        use crate::Deobfuscator;
-
-        let deob = Deobfuscator::new();
         let code = r#"var x = parseInt("13FKWwew");"#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_simplify(code);
         assert!(result.contains("13"));
     }
 
     #[test]
     fn test_parse_int_radix_literal() {
-        use crate::Deobfuscator;
-
-        let deob = Deobfuscator::new();
         let code = r#"var x = parseInt("ff", 16);"#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_simplify(code);
         assert!(result.contains("255"));
     }
 
     #[test]
     fn test_hex_string_escape_decoding() {
-        use crate::Deobfuscator;
-
-        let deob = Deobfuscator::new();
         let code = r#"var x = "\x57\x65\x62";"#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_simplify(code);
         assert!(result.contains("\"Web\""));
     }
 
     #[test]
     fn test_typeof_undefined() {
-        use crate::Deobfuscator;
-
-        let deob = Deobfuscator::new();
         // typeof undefined === "undefined" should become true
         let code = r#"var x = typeof undefined === "undefined";"#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_simplify(code);
         assert!(result.contains("true"));
     }
 
     #[test]
     fn test_fix_proxies_inlines_call_proxy_iife() {
-        use crate::{DeobfuscateOptions, Deobfuscator};
-        use std::sync::Arc;
-
-        let deob = Deobfuscator::new();
         let code = r#"
 function f(){ return 1; }
 function h(x){ return x; }
 (function(a, b){ return b(a()); })(f, h);
 "#;
-        let options = DeobfuscateOptions {
-            custom_transformers: Some(vec![Arc::new(Simplify::new())]),
-            ..Default::default()
-        };
-        let result = deob.deobfuscate_source(code, Some(options)).unwrap();
+        let result = deob_with_simplify(code);
         assert!(result.contains("h(f())") || result.contains("h(f());"));
     }
 
     #[test]
     fn test_fix_proxies_requires_safe_args() {
-        use crate::{DeobfuscateOptions, Deobfuscator};
-        use std::sync::Arc;
-
-        let deob = Deobfuscator::new();
         let code = r#"(function(a){ return a(); })(foo.bar);"#;
-        let options = DeobfuscateOptions {
-            custom_transformers: Some(vec![Arc::new(Simplify::new())]),
-            ..Default::default()
-        };
-        let result = deob.deobfuscate_source(code, Some(options)).unwrap();
+        let result = deob_with_simplify(code);
         // Should not inline because `foo.bar` is not a literal/identifier.
         assert!(result.contains("function"));
     }

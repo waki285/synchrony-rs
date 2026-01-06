@@ -119,6 +119,9 @@ impl Transformer for DeadCodeSafe {
                 break;
             }
 
+            let mut noop_collector = NoopFunctionCollector::default();
+            context.ast.visit_with(&mut noop_collector);
+
             let mut decl_spans = DeclarationSpanCollector::default();
             context.ast.visit_with(&mut decl_spans);
 
@@ -126,13 +129,27 @@ impl Transformer for DeadCodeSafe {
                 DirectUsageCollector::new(&decl_spans.decl_spans, context.source.as_deref());
             context.ast.visit_with(&mut usage);
 
-            let mut remover = UnusedDeclarationRemover::new(&scope_data, &usage.counts);
+            let mut fn_decl_collector = FunctionDeclCollector::default();
+            context.ast.visit_with(&mut fn_decl_collector);
+            let mut fn_usage_collector =
+                ExternalFunctionUsageCollector::new(&fn_decl_collector.fn_ids);
+            context.ast.visit_with(&mut fn_usage_collector);
+
+            let mut remover = UnusedDeclarationRemover::new(
+                &scope_data,
+                &usage.counts,
+                &fn_usage_collector.counts,
+            );
             context.ast.visit_mut_with(&mut remover);
 
             let mut iife_remover = SafeEmptyIifeRemover::default();
             context.ast.visit_mut_with(&mut iife_remover);
 
-            if !remover.changed && !iife_remover.changed {
+            let mut noop_remover =
+                SafeNoopCallRemover::new(&scope_data, &noop_collector.noop_functions);
+            context.ast.visit_mut_with(&mut noop_remover);
+
+            if !remover.changed && !iife_remover.changed && !noop_remover.changed {
                 break;
             }
         }
@@ -436,10 +453,60 @@ impl Visit for DeclarationSpanCollector {
     }
 }
 
+#[derive(Default)]
+struct FunctionDeclCollector {
+    fn_ids: HashSet<Id>,
+}
+
+impl Visit for FunctionDeclCollector {
+    fn visit_fn_decl(&mut self, func: &FnDecl) {
+        self.fn_ids
+            .insert((func.ident.sym.clone(), func.ident.ctxt));
+        func.function.visit_with(self);
+    }
+}
+
+struct ExternalFunctionUsageCollector<'a> {
+    fn_ids: &'a HashSet<Id>,
+    fn_stack: Vec<Id>,
+    counts: HashMap<Id, u32>,
+}
+
+impl<'a> ExternalFunctionUsageCollector<'a> {
+    fn new(fn_ids: &'a HashSet<Id>) -> Self {
+        Self {
+            fn_ids,
+            fn_stack: Vec::new(),
+            counts: HashMap::new(),
+        }
+    }
+}
+
+impl Visit for ExternalFunctionUsageCollector<'_> {
+    fn visit_fn_decl(&mut self, func: &FnDecl) {
+        let id = (func.ident.sym.clone(), func.ident.ctxt);
+        self.fn_stack.push(id);
+        func.function.visit_with(self);
+        self.fn_stack.pop();
+    }
+
+    fn visit_ident(&mut self, ident: &Ident) {
+        let id = (ident.sym.clone(), ident.ctxt);
+        if !self.fn_ids.contains(&id) {
+            return;
+        }
+        if self.fn_stack.last().is_some_and(|current| current == &id) {
+            return;
+        }
+        *self.counts.entry(id).or_insert(0) += 1;
+    }
+}
+
 struct DirectUsageCollector<'a> {
     counts: HashMap<Id, u32>,
     decl_spans: &'a HashMap<Id, HashSet<Span>>,
     source: Option<&'a str>,
+    fn_stack: Vec<String>,
 }
 
 impl<'a> DirectUsageCollector<'a> {
@@ -448,11 +515,19 @@ impl<'a> DirectUsageCollector<'a> {
             counts: HashMap::new(),
             decl_spans,
             source,
+            fn_stack: Vec::new(),
         }
     }
 }
 
 impl Visit for DirectUsageCollector<'_> {
+    fn visit_fn_decl(&mut self, func: &FnDecl) {
+        let name = func.ident.sym.to_string();
+        self.fn_stack.push(name);
+        func.function.visit_with(self);
+        self.fn_stack.pop();
+    }
+
     fn visit_pat(&mut self, pat: &Pat) {
         match pat {
             Pat::Ident(_) => {}
@@ -461,6 +536,13 @@ impl Visit for DirectUsageCollector<'_> {
     }
 
     fn visit_ident(&mut self, ident: &Ident) {
+        if self
+            .fn_stack
+            .last()
+            .is_some_and(|name| name == ident.sym.as_ref())
+        {
+            return;
+        }
         if let Some(spans) = self.decl_spans.get(&(ident.sym.clone(), ident.ctxt))
             && spans.contains(&ident.span)
         {
@@ -507,6 +589,7 @@ impl Visit for DirectUsageCollector<'_> {
 struct UnusedDeclarationRemover<'a> {
     scope_data: &'a crate::scope::ScopeData,
     direct_usage: &'a HashMap<Id, u32>,
+    fn_external_usage: &'a HashMap<Id, u32>,
     in_for_in_of_head: bool,
     debug_name: Option<String>,
     changed: bool,
@@ -514,6 +597,17 @@ struct UnusedDeclarationRemover<'a> {
 
 #[derive(Default)]
 struct SafeEmptyIifeRemover {
+    changed: bool,
+}
+
+#[derive(Default)]
+struct NoopFunctionCollector {
+    noop_functions: HashSet<String>,
+}
+
+struct SafeNoopCallRemover<'a> {
+    scope_data: &'a crate::scope::ScopeData,
+    noop_functions: &'a HashSet<String>,
     changed: bool,
 }
 
@@ -533,11 +627,74 @@ impl VisitMut for SafeEmptyIifeRemover {
     }
 }
 
+impl Visit for NoopFunctionCollector {
+    fn visit_fn_decl(&mut self, func: &FnDecl) {
+        if is_noop_function_decl(func) {
+            self.noop_functions.insert(func.ident.sym.to_string());
+        }
+        func.visit_children_with(self);
+    }
+}
+
+impl<'a> SafeNoopCallRemover<'a> {
+    fn new(scope_data: &'a crate::scope::ScopeData, noop_functions: &'a HashSet<String>) -> Self {
+        Self {
+            scope_data,
+            noop_functions,
+            changed: false,
+        }
+    }
+}
+
+impl VisitMut for SafeNoopCallRemover<'_> {
+    fn visit_mut_stmt(&mut self, stmt: &mut Stmt) {
+        stmt.visit_mut_children_with(self);
+
+        let Stmt::Expr(expr_stmt) = stmt else {
+            return;
+        };
+
+        let Some(call) = extract_call_expr(&expr_stmt.expr) else {
+            return;
+        };
+
+        let Callee::Expr(callee) = &call.callee else {
+            return;
+        };
+
+        let Expr::Ident(ident) = &**callee else {
+            return;
+        };
+
+        if !self.noop_functions.contains(ident.sym.as_ref()) {
+            return;
+        }
+
+        if !call
+            .args
+            .iter()
+            .all(|arg| is_safe_arg_expr(&arg.expr, self.scope_data))
+        {
+            return;
+        }
+
+        *stmt = Stmt::Empty(EmptyStmt {
+            span: Default::default(),
+        });
+        self.changed = true;
+    }
+}
+
 impl<'a> UnusedDeclarationRemover<'a> {
-    fn new(scope_data: &'a crate::scope::ScopeData, direct_usage: &'a HashMap<Id, u32>) -> Self {
+    fn new(
+        scope_data: &'a crate::scope::ScopeData,
+        direct_usage: &'a HashMap<Id, u32>,
+        fn_external_usage: &'a HashMap<Id, u32>,
+    ) -> Self {
         Self {
             scope_data,
             direct_usage,
+            fn_external_usage,
             in_for_in_of_head: false,
             debug_name: std::env::var("SYNCHRONY_DEBUG_DEADCODE_NAME").ok(),
             changed: false,
@@ -554,6 +711,16 @@ impl<'a> UnusedDeclarationRemover<'a> {
         };
         if !info.declared || info.exported {
             return false;
+        }
+        if info.declared_as_fn_decl {
+            let external = self
+                .fn_external_usage
+                .get(&(ident.sym.clone(), ident.ctxt))
+                .copied()
+                .unwrap_or(0);
+            if external == 0 {
+                return true;
+            }
         }
         if info.declared_as_fn_param || info.declared_as_for_init {
             return false;
@@ -732,6 +899,114 @@ impl VisitMut for UnusedDeclarationRemover<'_> {
             _ => true,
         });
     }
+}
+
+#[must_use]
+fn is_noop_function_decl(func: &FnDecl) -> bool {
+    let name = func.ident.sym.as_ref();
+    is_noop_function_body(&func.function, name)
+}
+
+#[must_use]
+fn is_noop_function_body(func: &Function, name: &str) -> bool {
+    let Some(body) = &func.body else {
+        return true;
+    };
+
+    let stmts: Vec<_> = body
+        .stmts
+        .iter()
+        .filter(|stmt| !matches!(stmt, Stmt::Empty(_)))
+        .collect();
+
+    if stmts.is_empty() {
+        return true;
+    }
+
+    if stmts.len() == 1 {
+        return is_self_assign_noop_stmt(stmts[0], name);
+    }
+
+    false
+}
+
+#[must_use]
+fn is_self_assign_noop_stmt(stmt: &Stmt, name: &str) -> bool {
+    let Stmt::Expr(expr_stmt) = stmt else {
+        return false;
+    };
+    let Expr::Assign(assign) = &*expr_stmt.expr else {
+        return false;
+    };
+    if assign.op != AssignOp::Assign {
+        return false;
+    }
+    let Some(left_ident) = assign.left.as_ident() else {
+        return false;
+    };
+    if left_ident.id.sym.as_ref() != name {
+        return false;
+    }
+    is_noop_function_value(&assign.right)
+}
+
+#[must_use]
+fn is_noop_function_value(expr: &Expr) -> bool {
+    match expr {
+        Expr::Fn(fn_expr) => is_empty_function_body(&fn_expr.function),
+        Expr::Arrow(arrow) => match &*arrow.body {
+            BlockStmtOrExpr::BlockStmt(block) => block
+                .stmts
+                .iter()
+                .all(|stmt| matches!(stmt, Stmt::Empty(_))),
+            BlockStmtOrExpr::Expr(expr) => is_pure_expr(expr),
+        },
+        _ => false,
+    }
+}
+
+#[must_use]
+fn is_empty_function_body(func: &Function) -> bool {
+    func.body
+        .as_ref()
+        .map(|body| body.stmts.iter().all(|stmt| matches!(stmt, Stmt::Empty(_))))
+        .unwrap_or(true)
+}
+
+#[must_use]
+fn is_safe_arg_expr(expr: &Expr, scope_data: &crate::scope::ScopeData) -> bool {
+    match expr {
+        Expr::Paren(paren) => is_safe_arg_expr(&paren.expr, scope_data),
+        Expr::Seq(seq) => seq
+            .exprs
+            .iter()
+            .all(|item| is_safe_arg_expr(item, scope_data)),
+        Expr::Assign(assign) => {
+            if assign.op != AssignOp::Assign {
+                return false;
+            }
+            let Some(left_ident) = assign.left.as_ident() else {
+                return false;
+            };
+            if !is_unused_write(&left_ident.id, scope_data) {
+                return false;
+            }
+            is_pure_expr(&assign.right)
+        }
+        _ => is_pure_expr(expr),
+    }
+}
+
+#[must_use]
+fn is_unused_write(ident: &Ident, scope_data: &crate::scope::ScopeData) -> bool {
+    let id = (ident.sym.clone(), ident.ctxt);
+    let Some(info) = scope_data.vars.get(&id) else {
+        return false;
+    };
+    if info.exported {
+        return false;
+    }
+    info.usage_count == 0
 }
 
 struct UndefinedObfuscatedCallRemover<'a> {

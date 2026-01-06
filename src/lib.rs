@@ -4,10 +4,16 @@
 //!
 //! ## Quick start
 //! ```rust
-//! use synchrony_rs::Deobfuscator;
+//! use synchrony_rs::{DeobfuscateOptions, Deobfuscator};
+//! use synchrony_rs::transformers::Simplify;
+//! use std::sync::Arc;
 //!
 //! let deob = Deobfuscator::new();
-//! let output = deob.deobfuscate_source("var a = 1;", None).unwrap();
+//! let options = DeobfuscateOptions {
+//!     custom_transformers: Some(vec![Arc::new(Simplify::new())]),
+//!     ..Default::default()
+//! };
+//! let output = deob.deobfuscate_source("var a = 1;", Some(options)).unwrap();
 //! assert!(output.contains("a"));
 //! ```
 //!

@@ -439,10 +439,18 @@ impl SwitchFixer {
         Self
     }
 
+    #[must_use]
+    fn strip_parens(expr: &Expr) -> &Expr {
+        match expr {
+            Expr::Paren(paren) => Self::strip_parens(&paren.expr),
+            _ => expr,
+        }
+    }
+
     /// Extract numeric value from expression
     #[must_use]
     fn get_numeric_value(expr: &Expr) -> Option<f64> {
-        match expr {
+        match Self::strip_parens(expr) {
             Expr::Lit(Lit::Num(n)) => Some(n.value),
             Expr::Unary(unary) if unary.op == UnaryOp::Minus => {
                 if let Expr::Lit(Lit::Num(n)) = &*unary.arg {
@@ -461,15 +469,18 @@ impl SwitchFixer {
     fn extract_state_transform(expr: &Expr) -> Option<(String, BinaryOp, f64, BinaryOp, f64)> {
         // Pattern: (x * left_val) + right_val
         // Or: (x + left_val) * right_val
+        let expr = Self::strip_parens(expr);
         if let Expr::Bin(outer) = expr {
             let right_val = Self::get_numeric_value(&outer.right)?;
             let right_op = outer.op;
 
-            if let Expr::Bin(inner) = &*outer.left {
+            let left_expr = Self::strip_parens(&outer.left);
+            if let Expr::Bin(inner) = left_expr {
                 let left_val = Self::get_numeric_value(&inner.right)?;
                 let left_op = inner.op;
 
-                if let Expr::Ident(ident) = &*inner.left {
+                let inner_left = Self::strip_parens(&inner.left);
+                if let Expr::Ident(ident) = inner_left {
                     return Some((
                         ident.sym.to_string(),
                         left_op,
@@ -617,6 +628,17 @@ impl SwitchFixer {
 mod tests {
     use super::*;
     use crate::Deobfuscator;
+    use crate::deobfuscator::DeobfuscateOptions;
+    use std::sync::Arc;
+
+    fn deob_with_jsconfuser(code: &str) -> String {
+        let deob = Deobfuscator::new();
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![Arc::new(JSConfuserControlFlow::new())]),
+            ..Default::default()
+        };
+        deob.deobfuscate_source(code, Some(options)).unwrap()
+    }
 
     #[test]
     fn test_jsconfuser_controlflow_new() {
@@ -646,7 +668,6 @@ mod tests {
 
     #[test]
     fn test_switch_fix_basic() {
-        let deob = Deobfuscator::new();
         let code = r#"
 function test(x) {
     var state = (x * 2) + 5;
@@ -660,8 +681,40 @@ function test(x) {
     }
 }
 "#;
-        let result = deob.deobfuscate_source(code, None).unwrap();
+        let result = deob_with_jsconfuser(code);
         // The switch should now use x directly with values 1, 2, 3
-        assert!(result.contains("switch") && result.contains("x"));
+        assert!(result.contains("switch"));
+        assert!(result.contains("case 1") || result.contains("case\n1"));
+        assert!(result.contains("case 2") || result.contains("case\n2"));
+        assert!(result.contains("case 3") || result.contains("case\n3"));
+        assert!(!result.contains("case 7") && !result.contains("case\n7"));
+        assert!(!result.contains("case 9") && !result.contains("case\n9"));
+        assert!(!result.contains("case 11") && !result.contains("case\n11"));
+    }
+
+    #[test]
+    fn test_switch_fix_basic_necessary_paren() {
+        let code = r#"
+function test(x) {
+    var state = (x + 2) * 5;
+    switch (state) {
+        case 15:
+            return "one";
+        case 20:
+            return "two";
+        case 25:
+            return "three";
+    }
+}
+"#;
+        let result = deob_with_jsconfuser(code);
+        // The switch should now use x directly with values 1, 2, 3
+        assert!(result.contains("switch"));
+        assert!(result.contains("case 1") || result.contains("case\n1"));
+        assert!(result.contains("case 2") || result.contains("case\n2"));
+        assert!(result.contains("case 3") || result.contains("case\n3"));
+        assert!(!result.contains("case 15") && !result.contains("case\n15"));
+        assert!(!result.contains("case 20") && !result.contains("case\n20"));
+        assert!(!result.contains("case 25") && !result.contains("case\n25"));
     }
 }
