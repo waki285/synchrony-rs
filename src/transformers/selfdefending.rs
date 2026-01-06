@@ -1,4 +1,4 @@
-//! SelfDefending transformer
+//! `SelfDefending` transformer
 //!
 //! Removes or neutralizes common "self-defending" anti-tamper patterns by
 //! replacing guard calls with no-ops and removing IIFE guard statements.
@@ -14,7 +14,7 @@ use crate::error::Result;
 use crate::scope::{Id, ScopeData, analyze};
 use crate::transformers::Transformer;
 
-/// SelfDefending transformer.
+/// `SelfDefending` transformer.
 ///
 /// Removes or neutralizes self-defending and anti-debug patterns.
 #[derive(Debug)]

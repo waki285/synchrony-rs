@@ -216,7 +216,7 @@ fn config_to_transformers(entries: Vec<ConfigTransformerEntry>) -> Vec<Transform
 fn parse_es_version_config(value: ConfigEsVersion) -> Result<EsVersion, String> {
     match value {
         ConfigEsVersion::Number(num) => {
-            map_es_version_num(num).ok_or_else(|| format!("Unknown ECMAScript version: {}", num))
+            map_es_version_num(num).ok_or_else(|| format!("Unknown ECMAScript version: {num}"))
         }
         ConfigEsVersion::Text(text) => parse_es_version_str(&text),
     }
@@ -259,7 +259,7 @@ fn apply_config(
 }
 fn main() {
     if let Err(e) = run() {
-        eprintln!("Error: {}", e);
+        eprintln!("Error: {e}");
         std::process::exit(1);
     }
 }
@@ -404,7 +404,7 @@ fn deobfuscate_code(
     format: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let result = deobfuscate_source(code, options, format)?;
-    println!("{}", result);
+    println!("{result}");
     Ok(())
 }
 
@@ -435,9 +435,9 @@ fn deobfuscate_file(
         let parent = input.parent().unwrap_or_else(|| Path::new("."));
 
         if ext.is_empty() {
-            parent.join(format!("{}.cleaned", stem))
+            parent.join(format!("{stem}.cleaned"))
         } else {
-            parent.join(format!("{}.cleaned.{}", stem, ext))
+            parent.join(format!("{stem}.cleaned.{ext}"))
         }
     });
 

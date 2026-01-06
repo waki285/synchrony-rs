@@ -1,4 +1,4 @@
-//! DeadCode transformer
+//! `DeadCode` transformer
 //!
 //! This transformer removes dead code from the AST:
 //! - Remove if(false) branches
@@ -17,7 +17,7 @@ use crate::error::Result;
 use crate::scope::{Id, analyze};
 use crate::transformers::Transformer;
 
-/// DeadCode transformer - removes unreachable code.
+/// `DeadCode` transformer - removes unreachable code.
 ///
 /// Also prunes unused obfuscated bindings that are side-effect free.
 #[derive(Debug)]
@@ -36,7 +36,7 @@ impl Default for DeadCode {
     }
 }
 
-/// DeadCodeSafe transformer - removes only unused declarations with pure initializers.
+/// `DeadCodeSafe` transformer - removes only unused declarations with pure initializers.
 ///
 /// This is intended for a post-rename cleanup where we want minimal risk.
 #[derive(Debug)]
@@ -343,8 +343,7 @@ impl<'a> ObfuscatedDeadCodeRemover<'a> {
         self.scope_data
             .vars
             .get(&id)
-            .map(|info| info.is_unused() && !info.exported)
-            .unwrap_or(false)
+            .is_some_and(|info| info.is_unused() && !info.exported)
     }
 }
 
@@ -969,8 +968,7 @@ fn is_noop_function_value(expr: &Expr) -> bool {
 fn is_empty_function_body(func: &Function) -> bool {
     func.body
         .as_ref()
-        .map(|body| body.stmts.iter().all(|stmt| matches!(stmt, Stmt::Empty(_))))
-        .unwrap_or(true)
+        .map_or(true, |body| body.stmts.iter().all(|stmt| matches!(stmt, Stmt::Empty(_))))
 }
 
 #[must_use]
@@ -1066,8 +1064,7 @@ fn is_pure_iife_call(call: &CallExpr) -> bool {
         Some(IifeCallee::Function(func)) => func
             .body
             .as_ref()
-            .map(|body| is_pure_stmt_list(&body.stmts))
-            .unwrap_or(true),
+            .map_or(true, |body| is_pure_stmt_list(&body.stmts)),
         Some(IifeCallee::Arrow(arrow)) => match &*arrow.body {
             BlockStmtOrExpr::BlockStmt(block) => is_pure_stmt_list(&block.stmts),
             BlockStmtOrExpr::Expr(expr) => is_pure_expr(expr),
@@ -1086,8 +1083,7 @@ fn is_obfuscated_pure_iife_call(call: &CallExpr) -> bool {
         Some(IifeCallee::Function(func)) => func
             .body
             .as_ref()
-            .map(|body| body_contains_obfuscated_ident(&body.stmts))
-            .unwrap_or(false),
+            .is_some_and(|body| body_contains_obfuscated_ident(&body.stmts)),
         Some(IifeCallee::Arrow(arrow)) => match &*arrow.body {
             BlockStmtOrExpr::BlockStmt(block) => body_contains_obfuscated_ident(&block.stmts),
             BlockStmtOrExpr::Expr(expr) => expr_contains_obfuscated_ident(expr),
@@ -1102,7 +1098,7 @@ enum IifeCallee<'a> {
 }
 
 #[must_use]
-fn extract_iife_callee<'a>(callee: &'a Callee) -> Option<IifeCallee<'a>> {
+fn extract_iife_callee(callee: &Callee) -> Option<IifeCallee<'_>> {
     match callee {
         Callee::Expr(expr) => extract_iife_expr(expr),
         _ => None,
@@ -1110,7 +1106,7 @@ fn extract_iife_callee<'a>(callee: &'a Callee) -> Option<IifeCallee<'a>> {
 }
 
 #[must_use]
-fn extract_iife_expr<'a>(expr: &'a Expr) -> Option<IifeCallee<'a>> {
+fn extract_iife_expr(expr: &Expr) -> Option<IifeCallee<'_>> {
     match expr {
         Expr::Fn(fn_expr) => Some(IifeCallee::Function(&fn_expr.function)),
         Expr::Arrow(arrow) => Some(IifeCallee::Arrow(arrow)),
@@ -1143,16 +1139,14 @@ fn is_pure_stmt(stmt: &Stmt) -> bool {
         Stmt::Decl(Decl::Var(var_decl)) => var_decl.decls.iter().all(|decl| {
             decl.init
                 .as_ref()
-                .map(|init| is_pure_expr(init))
-                .unwrap_or(true)
+                .map_or(true, |init| is_pure_expr(init))
         }),
         Stmt::Decl(Decl::Fn(_)) => true,
         Stmt::Block(block) => is_pure_stmt_list(&block.stmts),
         Stmt::Return(ret) => ret
             .arg
             .as_ref()
-            .map(|arg| is_pure_expr(arg))
-            .unwrap_or(true),
+            .map_or(true, |arg| is_pure_expr(arg)),
         _ => false,
     }
 }
@@ -1199,8 +1193,7 @@ fn is_empty_iife_call(call: &CallExpr) -> bool {
         Some(IifeCallee::Function(func)) => func
             .body
             .as_ref()
-            .map(|body| body.stmts.iter().all(|stmt| matches!(stmt, Stmt::Empty(_))))
-            .unwrap_or(true),
+            .map_or(true, |body| body.stmts.iter().all(|stmt| matches!(stmt, Stmt::Empty(_)))),
         Some(IifeCallee::Arrow(arrow)) => match &*arrow.body {
             BlockStmtOrExpr::BlockStmt(block) => block
                 .stmts
@@ -1264,7 +1257,7 @@ struct DeadVariableRemover<'a> {
     dead_vars: &'a HashSet<Id>,
 }
 
-impl<'a> VisitMut for DeadVariableRemover<'a> {
+impl VisitMut for DeadVariableRemover<'_> {
     fn visit_mut_var_decl(&mut self, decl: &mut VarDecl) {
         decl.visit_mut_children_with(self);
 

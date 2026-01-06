@@ -1,4 +1,4 @@
-//! StringDecoder transformer
+//! `StringDecoder` transformer
 //!
 //! Decodes obfuscated strings using string arrays and decoder functions.
 //! Supports Simple, Base64, and RC4 decoding methods.

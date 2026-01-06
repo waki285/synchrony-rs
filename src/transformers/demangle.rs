@@ -52,7 +52,7 @@ impl Transformer for Demangle {
 }
 
 /// Visitor that demangles proxy function patterns
-/// Handles: return (func_name = function() { ... }, func_name(...))
+/// Handles: return (`func_name` = `function()` { ... }, `func_name`(...))
 struct DemangleProxyVisitor;
 
 /// Visitor that demangles string decoder function patterns
@@ -166,7 +166,7 @@ impl VisitMut for DemangleProxyVisitor {
     }
 }
 
-/// Implementation for DemangleStringFuncsVisitor
+/// Implementation for `DemangleStringFuncsVisitor`
 /// This handles the pattern where string decoder functions have:
 /// - An assignment that sets up the function
 /// - A member expression with an offset subtraction like arr[idx -= offset]

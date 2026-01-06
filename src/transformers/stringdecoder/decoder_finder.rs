@@ -427,10 +427,10 @@ impl<'a> DecoderFunctionFinder<'a> {
                 Self::scan_decoder_helpers_in_expr(&bin.right, charset, rc4_found);
             }
             Expr::Unary(unary) => {
-                Self::scan_decoder_helpers_in_expr(&unary.arg, charset, rc4_found)
+                Self::scan_decoder_helpers_in_expr(&unary.arg, charset, rc4_found);
             }
             Expr::Paren(paren) => {
-                Self::scan_decoder_helpers_in_expr(&paren.expr, charset, rc4_found)
+                Self::scan_decoder_helpers_in_expr(&paren.expr, charset, rc4_found);
             }
             Expr::Seq(seq) => {
                 for item in &seq.exprs {
@@ -497,19 +497,17 @@ impl<'a> DecoderFunctionFinder<'a> {
             Stmt::Decl(Decl::Var(var_decl)) => var_decl.decls.iter().any(|decl| {
                 decl.init
                     .as_ref()
-                    .map(|init| Self::expr_contains_member_prop(init, prop))
-                    .unwrap_or(false)
+                    .is_some_and(|init| Self::expr_contains_member_prop(init, prop))
             }),
             Stmt::Decl(Decl::Fn(fn_decl)) => fn_decl
                 .function
                 .body
                 .as_ref()
-                .map(|body| {
+                .is_some_and(|body| {
                     body.stmts
                         .iter()
                         .any(|s| Self::stmt_contains_member_prop(s, prop))
-                })
-                .unwrap_or(false),
+                }),
             Stmt::Block(block) => block
                 .stmts
                 .iter()
@@ -520,8 +518,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                     || if_stmt
                         .alt
                         .as_ref()
-                        .map(|alt| Self::stmt_contains_member_prop(alt, prop))
-                        .unwrap_or(false)
+                        .is_some_and(|alt| Self::stmt_contains_member_prop(alt, prop))
             }
             Stmt::While(while_stmt) => {
                 Self::expr_contains_member_prop(&while_stmt.test, prop)
@@ -532,8 +529,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                     Some(VarDeclOrExpr::VarDecl(var_decl)) => var_decl.decls.iter().any(|decl| {
                         decl.init
                             .as_ref()
-                            .map(|init| Self::expr_contains_member_prop(init, prop))
-                            .unwrap_or(false)
+                            .is_some_and(|init| Self::expr_contains_member_prop(init, prop))
                     }),
                     Some(VarDeclOrExpr::Expr(expr)) => Self::expr_contains_member_prop(expr, prop),
                     None => false,
@@ -542,13 +538,11 @@ impl<'a> DecoderFunctionFinder<'a> {
                     || for_stmt
                         .test
                         .as_ref()
-                        .map(|test| Self::expr_contains_member_prop(test, prop))
-                        .unwrap_or(false)
+                        .is_some_and(|test| Self::expr_contains_member_prop(test, prop))
                     || for_stmt
                         .update
                         .as_ref()
-                        .map(|update| Self::expr_contains_member_prop(update, prop))
-                        .unwrap_or(false)
+                        .is_some_and(|update| Self::expr_contains_member_prop(update, prop))
                     || Self::stmt_contains_member_prop(&for_stmt.body, prop)
             }
             Stmt::ForIn(for_in) => {
@@ -562,8 +556,7 @@ impl<'a> DecoderFunctionFinder<'a> {
             Stmt::Return(ret) => ret
                 .arg
                 .as_ref()
-                .map(|arg| Self::expr_contains_member_prop(arg, prop))
-                .unwrap_or(false),
+                .is_some_and(|arg| Self::expr_contains_member_prop(arg, prop)),
             Stmt::Try(try_stmt) => {
                 try_stmt
                     .block
@@ -573,24 +566,22 @@ impl<'a> DecoderFunctionFinder<'a> {
                     || try_stmt
                         .handler
                         .as_ref()
-                        .map(|handler| {
+                        .is_some_and(|handler| {
                             handler
                                 .body
                                 .stmts
                                 .iter()
                                 .any(|s| Self::stmt_contains_member_prop(s, prop))
                         })
-                        .unwrap_or(false)
                     || try_stmt
                         .finalizer
                         .as_ref()
-                        .map(|finalizer| {
+                        .is_some_and(|finalizer| {
                             finalizer
                                 .stmts
                                 .iter()
                                 .any(|s| Self::stmt_contains_member_prop(s, prop))
                         })
-                        .unwrap_or(false)
             }
             _ => false,
         }
@@ -661,30 +652,27 @@ impl<'a> DecoderFunctionFinder<'a> {
                         .function
                         .body
                         .as_ref()
-                        .map(|body| {
+                        .is_some_and(|body| {
                             body.stmts
                                 .iter()
                                 .any(|s| Self::stmt_contains_member_prop(s, prop_name))
-                        })
-                        .unwrap_or(false),
+                        }),
                     Prop::Getter(getter) => getter
                         .body
                         .as_ref()
-                        .map(|body| {
+                        .is_some_and(|body| {
                             body.stmts
                                 .iter()
                                 .any(|s| Self::stmt_contains_member_prop(s, prop_name))
-                        })
-                        .unwrap_or(false),
+                        }),
                     Prop::Setter(setter) => setter
                         .body
                         .as_ref()
-                        .map(|body| {
+                        .is_some_and(|body| {
                             body.stmts
                                 .iter()
                                 .any(|s| Self::stmt_contains_member_prop(s, prop_name))
-                        })
-                        .unwrap_or(false),
+                        }),
                     _ => false,
                 },
                 _ => false,
@@ -700,15 +688,13 @@ impl<'a> DecoderFunctionFinder<'a> {
             Stmt::Decl(Decl::Var(var_decl)) => var_decl.decls.iter().any(|decl| {
                 decl.init
                     .as_ref()
-                    .map(|init| Self::expr_contains_bitxor(init))
-                    .unwrap_or(false)
+                    .is_some_and(|init| Self::expr_contains_bitxor(init))
             }),
             Stmt::Decl(Decl::Fn(fn_decl)) => fn_decl
                 .function
                 .body
                 .as_ref()
-                .map(|body| body.stmts.iter().any(Self::stmt_contains_bitxor))
-                .unwrap_or(false),
+                .is_some_and(|body| body.stmts.iter().any(Self::stmt_contains_bitxor)),
             Stmt::Block(block) => block.stmts.iter().any(Self::stmt_contains_bitxor),
             Stmt::If(if_stmt) => {
                 Self::expr_contains_bitxor(&if_stmt.test)
@@ -716,8 +702,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                     || if_stmt
                         .alt
                         .as_ref()
-                        .map(|alt| Self::stmt_contains_bitxor(alt))
-                        .unwrap_or(false)
+                        .is_some_and(|alt| Self::stmt_contains_bitxor(alt))
             }
             Stmt::While(while_stmt) => {
                 Self::expr_contains_bitxor(&while_stmt.test)
@@ -728,8 +713,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                     Some(VarDeclOrExpr::VarDecl(var_decl)) => var_decl.decls.iter().any(|decl| {
                         decl.init
                             .as_ref()
-                            .map(|init| Self::expr_contains_bitxor(init))
-                            .unwrap_or(false)
+                            .is_some_and(|init| Self::expr_contains_bitxor(init))
                     }),
                     Some(VarDeclOrExpr::Expr(expr)) => Self::expr_contains_bitxor(expr),
                     None => false,
@@ -738,13 +722,11 @@ impl<'a> DecoderFunctionFinder<'a> {
                     || for_stmt
                         .test
                         .as_ref()
-                        .map(|test| Self::expr_contains_bitxor(test))
-                        .unwrap_or(false)
+                        .is_some_and(|test| Self::expr_contains_bitxor(test))
                     || for_stmt
                         .update
                         .as_ref()
-                        .map(|update| Self::expr_contains_bitxor(update))
-                        .unwrap_or(false)
+                        .is_some_and(|update| Self::expr_contains_bitxor(update))
                     || Self::stmt_contains_bitxor(&for_stmt.body)
             }
             Stmt::ForIn(for_in) => {
@@ -758,20 +740,17 @@ impl<'a> DecoderFunctionFinder<'a> {
             Stmt::Return(ret) => ret
                 .arg
                 .as_ref()
-                .map(|arg| Self::expr_contains_bitxor(arg))
-                .unwrap_or(false),
+                .is_some_and(|arg| Self::expr_contains_bitxor(arg)),
             Stmt::Try(try_stmt) => {
                 try_stmt.block.stmts.iter().any(Self::stmt_contains_bitxor)
                     || try_stmt
                         .handler
                         .as_ref()
-                        .map(|handler| handler.body.stmts.iter().any(Self::stmt_contains_bitxor))
-                        .unwrap_or(false)
+                        .is_some_and(|handler| handler.body.stmts.iter().any(Self::stmt_contains_bitxor))
                     || try_stmt
                         .finalizer
                         .as_ref()
-                        .map(|finalizer| finalizer.stmts.iter().any(Self::stmt_contains_bitxor))
-                        .unwrap_or(false)
+                        .is_some_and(|finalizer| finalizer.stmts.iter().any(Self::stmt_contains_bitxor))
             }
             _ => false,
         }
@@ -829,18 +808,15 @@ impl<'a> DecoderFunctionFinder<'a> {
                         .function
                         .body
                         .as_ref()
-                        .map(|body| body.stmts.iter().any(Self::stmt_contains_bitxor))
-                        .unwrap_or(false),
+                        .is_some_and(|body| body.stmts.iter().any(Self::stmt_contains_bitxor)),
                     Prop::Getter(getter) => getter
                         .body
                         .as_ref()
-                        .map(|body| body.stmts.iter().any(Self::stmt_contains_bitxor))
-                        .unwrap_or(false),
+                        .is_some_and(|body| body.stmts.iter().any(Self::stmt_contains_bitxor)),
                     Prop::Setter(setter) => setter
                         .body
                         .as_ref()
-                        .map(|body| body.stmts.iter().any(Self::stmt_contains_bitxor))
-                        .unwrap_or(false),
+                        .is_some_and(|body| body.stmts.iter().any(Self::stmt_contains_bitxor)),
                     _ => false,
                 },
                 _ => false,
@@ -856,19 +832,17 @@ impl<'a> DecoderFunctionFinder<'a> {
             Stmt::Decl(Decl::Var(var_decl)) => var_decl.decls.iter().any(|decl| {
                 decl.init
                     .as_ref()
-                    .map(|init| Self::expr_contains_number(init, value))
-                    .unwrap_or(false)
+                    .is_some_and(|init| Self::expr_contains_number(init, value))
             }),
             Stmt::Decl(Decl::Fn(fn_decl)) => fn_decl
                 .function
                 .body
                 .as_ref()
-                .map(|body| {
+                .is_some_and(|body| {
                     body.stmts
                         .iter()
                         .any(|s| Self::stmt_contains_number(s, value))
-                })
-                .unwrap_or(false),
+                }),
             Stmt::Block(block) => block
                 .stmts
                 .iter()
@@ -879,8 +853,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                     || if_stmt
                         .alt
                         .as_ref()
-                        .map(|alt| Self::stmt_contains_number(alt, value))
-                        .unwrap_or(false)
+                        .is_some_and(|alt| Self::stmt_contains_number(alt, value))
             }
             Stmt::While(while_stmt) => {
                 Self::expr_contains_number(&while_stmt.test, value)
@@ -891,8 +864,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                     Some(VarDeclOrExpr::VarDecl(var_decl)) => var_decl.decls.iter().any(|decl| {
                         decl.init
                             .as_ref()
-                            .map(|init| Self::expr_contains_number(init, value))
-                            .unwrap_or(false)
+                            .is_some_and(|init| Self::expr_contains_number(init, value))
                     }),
                     Some(VarDeclOrExpr::Expr(expr)) => Self::expr_contains_number(expr, value),
                     None => false,
@@ -901,13 +873,11 @@ impl<'a> DecoderFunctionFinder<'a> {
                     || for_stmt
                         .test
                         .as_ref()
-                        .map(|test| Self::expr_contains_number(test, value))
-                        .unwrap_or(false)
+                        .is_some_and(|test| Self::expr_contains_number(test, value))
                     || for_stmt
                         .update
                         .as_ref()
-                        .map(|update| Self::expr_contains_number(update, value))
-                        .unwrap_or(false)
+                        .is_some_and(|update| Self::expr_contains_number(update, value))
                     || Self::stmt_contains_number(&for_stmt.body, value)
             }
             Stmt::ForIn(for_in) => {
@@ -921,8 +891,7 @@ impl<'a> DecoderFunctionFinder<'a> {
             Stmt::Return(ret) => ret
                 .arg
                 .as_ref()
-                .map(|arg| Self::expr_contains_number(arg, value))
-                .unwrap_or(false),
+                .is_some_and(|arg| Self::expr_contains_number(arg, value)),
             Stmt::Try(try_stmt) => {
                 try_stmt
                     .block
@@ -932,24 +901,22 @@ impl<'a> DecoderFunctionFinder<'a> {
                     || try_stmt
                         .handler
                         .as_ref()
-                        .map(|handler| {
+                        .is_some_and(|handler| {
                             handler
                                 .body
                                 .stmts
                                 .iter()
                                 .any(|s| Self::stmt_contains_number(s, value))
                         })
-                        .unwrap_or(false)
                     || try_stmt
                         .finalizer
                         .as_ref()
-                        .map(|finalizer| {
+                        .is_some_and(|finalizer| {
                             finalizer
                                 .stmts
                                 .iter()
                                 .any(|s| Self::stmt_contains_number(s, value))
                         })
-                        .unwrap_or(false)
             }
             _ => false,
         }
@@ -1006,30 +973,27 @@ impl<'a> DecoderFunctionFinder<'a> {
                         .function
                         .body
                         .as_ref()
-                        .map(|body| {
+                        .is_some_and(|body| {
                             body.stmts
                                 .iter()
                                 .any(|s| Self::stmt_contains_number(s, value))
-                        })
-                        .unwrap_or(false),
+                        }),
                     Prop::Getter(getter) => getter
                         .body
                         .as_ref()
-                        .map(|body| {
+                        .is_some_and(|body| {
                             body.stmts
                                 .iter()
                                 .any(|s| Self::stmt_contains_number(s, value))
-                        })
-                        .unwrap_or(false),
+                        }),
                     Prop::Setter(setter) => setter
                         .body
                         .as_ref()
-                        .map(|body| {
+                        .is_some_and(|body| {
                             body.stmts
                                 .iter()
                                 .any(|s| Self::stmt_contains_number(s, value))
-                        })
-                        .unwrap_or(false),
+                        }),
                     _ => false,
                 },
                 _ => false,

@@ -1,4 +1,4 @@
-//! ArrayMap transformer
+//! `ArrayMap` transformer
 //!
 //! Replaces array literal accesses with their values.
 //! Handles arrays that start with null as the first element.
@@ -23,7 +23,7 @@ use crate::context::Context;
 use crate::error::Result;
 use crate::transformers::Transformer;
 
-/// ArrayMap transformer.
+/// `ArrayMap` transformer.
 ///
 /// Inlines array literal accesses where the array starts with null to reduce
 /// indirect array lookups.

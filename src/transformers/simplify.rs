@@ -359,7 +359,7 @@ impl VisitMut for SimplifyVisitor {
                         Self::get_string_value(right_lit),
                     )
                 {
-                    *expr = Self::create_string_lit(format!("{}{}", left, right));
+                    *expr = Self::create_string_lit(format!("{left}{right}"));
                     return;
                 }
 
@@ -615,7 +615,7 @@ impl VisitMut for FixupVisitor {
 }
 
 /// Logical expression transformer
-/// Converts patterns like: a == b && (c(), d()) to if (a == b) { c(); d(); }
+/// Converts patterns like: a == b && (`c()`, `d()`) to if (a == b) { `c()`; `d()`; }
 struct LogicalExpressionVisitor;
 
 impl VisitMut for LogicalExpressionVisitor {
@@ -1043,7 +1043,7 @@ fn collect_function_scoped_names_from_stmt(stmt: &Stmt, declared: &mut HashSet<S
             }
         }
         Stmt::While(while_stmt) => {
-            collect_function_scoped_names_from_stmt(&while_stmt.body, declared)
+            collect_function_scoped_names_from_stmt(&while_stmt.body, declared);
         }
         Stmt::DoWhile(do_while_stmt) => {
             collect_function_scoped_names_from_stmt(&do_while_stmt.body, declared);

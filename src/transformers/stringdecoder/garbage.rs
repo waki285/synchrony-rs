@@ -257,8 +257,7 @@ impl Visit for ExternalUsageFinder<'_> {
         let in_own_fn = self
             .fn_stack
             .last()
-            .map(|name| name == ident.sym.as_ref())
-            .unwrap_or(false);
+            .is_some_and(|name| name == ident.sym.as_ref());
         if !in_own_fn {
             self.external_uses.insert(ident.sym.to_string());
         }

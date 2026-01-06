@@ -40,10 +40,10 @@ pub fn parse_es_version_str(raw: &str) -> Result<EsVersion, String> {
 
     if let Ok(num) = normalized.parse::<u32>() {
         return map_es_version_num(num)
-            .ok_or_else(|| format!("Unknown ECMAScript version: {}", trimmed));
+            .ok_or_else(|| format!("Unknown ECMAScript version: {trimmed}"));
     }
 
-    Err(format!("Unknown ECMAScript version: {}", trimmed))
+    Err(format!("Unknown ECMAScript version: {trimmed}"))
 }
 
 /// Parse source type string ("script", "module", or "both").
@@ -52,6 +52,6 @@ pub fn parse_source_type_str(raw: &str) -> Result<SourceType, String> {
         "module" => Ok(SourceType::Module),
         "script" => Ok(SourceType::Script),
         "both" => Ok(SourceType::Both),
-        other => Err(format!("Unknown source type: {}", other)),
+        other => Err(format!("Unknown source type: {other}")),
     }
 }

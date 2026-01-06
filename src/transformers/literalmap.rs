@@ -1,4 +1,4 @@
-//! LiteralMap transformer
+//! `LiteralMap` transformer
 //!
 //! Replaces references to object properties with their literal values
 //! when the object contains only literal values.
@@ -21,7 +21,7 @@ use crate::error::Result;
 use crate::scope::{Id, analyze};
 use crate::transformers::Transformer;
 
-/// LiteralMap transformer.
+/// `LiteralMap` transformer.
 ///
 /// Inlines literal values from object literal maps used as lookup tables.
 #[derive(Debug)]
@@ -331,7 +331,7 @@ struct ReadOnlyLiteralFinder<'a> {
     remove_garbage: bool,
 }
 
-impl<'a> VisitMut for ReadOnlyLiteralFinder<'a> {
+impl VisitMut for ReadOnlyLiteralFinder<'_> {
     fn visit_mut_var_decl(&mut self, decl: &mut VarDecl) {
         decl.visit_mut_children_with(self);
 
@@ -400,7 +400,7 @@ struct LiteralReplacer<'a> {
     remove_garbage: bool,
 }
 
-impl<'a> VisitMut for LiteralReplacer<'a> {
+impl VisitMut for LiteralReplacer<'_> {
     fn visit_mut_var_decl(&mut self, decl: &mut VarDecl) {
         decl.visit_mut_children_with(self);
 

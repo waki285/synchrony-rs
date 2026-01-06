@@ -1,4 +1,4 @@
-//! AntiDebug transformer
+//! `AntiDebug` transformer
 //!
 //! Neutralizes time-based anti-debug/VM guard functions by replacing their
 //! bodies with empty blocks when they match a strict heuristic.
@@ -13,7 +13,7 @@ use crate::error::Result;
 use crate::scope::Id;
 use crate::transformers::Transformer;
 
-/// AntiDebug transformer.
+/// `AntiDebug` transformer.
 ///
 /// Detects time-based guard functions and no-ops them.
 #[derive(Debug)]

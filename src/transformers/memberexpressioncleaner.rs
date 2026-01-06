@@ -1,4 +1,4 @@
-//! MemberExpressionCleaner transformer
+//! `MemberExpressionCleaner` transformer
 //!
 //! Converts computed member expressions with string literals to dot notation.
 //! Example: `obj["property"]` -> `obj.property`
@@ -18,7 +18,7 @@ static VALID_DOT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[a-zA-Z_$][a-zA-Z0-9_$]*$").expect("valid identifier regex should compile")
 });
 
-/// MemberExpressionCleaner transformer.
+/// `MemberExpressionCleaner` transformer.
 ///
 /// Converts `obj["prop"]` to `obj.prop` when the property is a valid identifier.
 #[derive(Debug)]

@@ -91,8 +91,7 @@ pub fn create_transformer(name: &str) -> Result<TransformerBox> {
             Ok(Arc::new(JSConfuserControlFlow::new()))
         }
         _ => Err(crate::error::DeobfuscateError::InvalidTransformer(format!(
-            "Unknown transformer: {}",
-            name
+            "Unknown transformer: {name}"
         ))),
     }
 }

@@ -185,7 +185,7 @@ impl ScopeAwareRenamer {
     }
 
     fn rename_array_pat(&mut self, pat: &mut ArrayPat) {
-        for elem in pat.elems.iter_mut() {
+        for elem in &mut pat.elems {
             let Some(elem) = elem else { continue };
             self.rename_array_pat_elem(elem);
         }
@@ -294,7 +294,7 @@ impl VisitMut for ScopeAwareRenamer {
         self.push_scope();
 
         // Rename parameters
-        for param in func.params.iter_mut() {
+        for param in &mut func.params {
             if let Pat::Ident(binding) = &mut param.pat {
                 let old_name = binding.id.sym.to_string();
                 let new_name = self.declare_name(&old_name, NameKind::Parameter);
@@ -394,7 +394,7 @@ impl VisitMut for ScopeAwareRenamer {
         self.push_scope();
 
         // Rename parameters
-        for param in arrow.params.iter_mut() {
+        for param in &mut arrow.params {
             if let Pat::Ident(binding) = param {
                 let old_name = binding.id.sym.to_string();
                 let new_name = self.declare_name(&old_name, NameKind::Parameter);

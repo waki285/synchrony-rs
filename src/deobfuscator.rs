@@ -210,7 +210,7 @@ impl Deobfuscator {
         parser
             .parse_module()
             .map(|m| (Program::Module(m), cm, true))
-            .map_err(|e| DeobfuscateError::ParseError(format!("{:?}", e)))
+            .map_err(|e| DeobfuscateError::ParseError(format!("{e:?}")))
     }
 
     fn parse_as_script(
@@ -228,7 +228,7 @@ impl Deobfuscator {
         parser
             .parse_script()
             .map(|s| (Program::Script(s), cm, false))
-            .map_err(|e| DeobfuscateError::ParseError(format!("{:?}", e)))
+            .map_err(|e| DeobfuscateError::ParseError(format!("{e:?}")))
     }
 
     /// Generate JavaScript code from an AST
@@ -256,11 +256,11 @@ impl Deobfuscator {
 
             emitter
                 .emit_program(program)
-                .map_err(|e| DeobfuscateError::CodegenError(format!("{:?}", e)))?;
+                .map_err(|e| DeobfuscateError::CodegenError(format!("{e:?}")))?;
         }
 
         String::from_utf8(buf)
-            .map_err(|e| DeobfuscateError::CodegenError(format!("Invalid UTF-8: {}", e)))
+            .map_err(|e| DeobfuscateError::CodegenError(format!("Invalid UTF-8: {e}")))
     }
 
     /// Deobfuscate an AST

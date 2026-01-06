@@ -1,6 +1,6 @@
-//! JSConfuser Calculator transformer
+//! `JSConfuser` Calculator transformer
 //!
-//! Handles JSConfuser's calculator pattern which uses switch statements
+//! Handles `JSConfuser`'s calculator pattern which uses switch statements
 //! to perform math operations.
 //!
 //! Pattern:
@@ -24,7 +24,7 @@ use crate::context::Context;
 use crate::error::Result;
 use crate::transformers::Transformer;
 
-/// JSConfuser Calculator transformer.
+/// `JSConfuser` Calculator transformer.
 ///
 /// Evaluates calculator switch helpers into direct arithmetic where possible.
 #[derive(Debug)]

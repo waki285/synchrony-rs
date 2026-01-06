@@ -93,7 +93,7 @@ pub(super) fn eval_const_i64(expr: &Expr) -> Option<i64> {
     }
 }
 
-/// StringDecoder transformer.
+/// `StringDecoder` transformer.
 ///
 /// Finds and decodes obfuscated string patterns into literal strings.
 #[derive(Debug)]

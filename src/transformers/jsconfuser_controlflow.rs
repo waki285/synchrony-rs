@@ -1,6 +1,6 @@
-//! JSConfuser ControlFlow transformer
+//! `JSConfuser` `ControlFlow` transformer
 //!
-//! Handles JSConfuser's control flow flattening pattern which uses
+//! Handles `JSConfuser`'s control flow flattening pattern which uses
 //! switch statements with computed case values.
 //!
 //! Pattern:
@@ -108,9 +108,9 @@ fn evaluate_binary_expr(stack: &VarStack, expr: &Expr) -> Option<f64> {
     }
 }
 
-/// JSConfuser ControlFlow transformer.
+/// `JSConfuser` `ControlFlow` transformer.
 ///
-/// Simplifies JSConfuser switch-based control flow where case values can be resolved.
+/// Simplifies `JSConfuser` switch-based control flow where case values can be resolved.
 #[derive(Debug)]
 pub struct JSConfuserControlFlow;
 
@@ -430,7 +430,7 @@ impl Deflattener {
     }
 }
 
-/// Fixes JSConfuser switch case values by inverting the state computation
+/// Fixes `JSConfuser` switch case values by inverting the state computation
 struct SwitchFixer;
 
 impl SwitchFixer {
@@ -464,7 +464,7 @@ impl SwitchFixer {
     }
 
     /// Try to extract state transformation from expression like (x * 2) + 5
-    /// Returns (inner_var_name, left_op, left_val, right_op, right_val)
+    /// Returns (`inner_var_name`, `left_op`, `left_val`, `right_op`, `right_val`)
     #[must_use]
     fn extract_state_transform(expr: &Expr) -> Option<(String, BinaryOp, f64, BinaryOp, f64)> {
         // Pattern: (x * left_val) + right_val

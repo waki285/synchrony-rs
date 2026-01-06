@@ -1,4 +1,4 @@
-//! ControlFlow transformer
+//! `ControlFlow` transformer
 //!
 //! Handles control flow flattening deobfuscation.
 //! This includes:
@@ -15,7 +15,7 @@ use crate::context::{Context, ControlFlowFunction, ControlFlowLiteral, ControlFl
 use crate::error::Result;
 use crate::transformers::Transformer;
 
-/// ControlFlow transformer.
+/// `ControlFlow` transformer.
 ///
 /// Resolves flattened switch-based control flow and related storage helpers.
 #[derive(Debug)]
