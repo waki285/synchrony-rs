@@ -18,8 +18,6 @@ mod selfdefending;
 mod simplify;
 mod stringdecoder;
 
-use std::fmt::Debug;
-
 #[cfg(feature = "cli")]
 use serde_json::Value;
 
@@ -47,7 +45,7 @@ use crate::error::Result;
 pub type TransformerBox = Arc<dyn Transformer>;
 
 /// Trait for all transformers
-pub trait Transformer: Send + Sync + Debug {
+pub trait Transformer: Send + Sync {
     /// Get the name of this transformer
     fn name(&self) -> &'static str;
 

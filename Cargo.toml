@@ -1,6 +1,6 @@
 [package]
 name = "synchrony-rs"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["waki285 <suzuneu@suzuneu.com>", "relative <hi@relative.im>"]
 description = "A fast JavaScript deobfuscator written in Rust"
@@ -64,7 +64,7 @@ swc_atoms = "9"
 swc_common = { version = "18", features = ["tty-emitter"] }
 swc_ecma_ast = "19"
 swc_ecma_codegen = "21"
-swc_ecma_parser = "31"
+swc_ecma_parser = "32"
 swc_ecma_usage_analyzer = "27"
 swc_ecma_utils = "25"
 swc_ecma_visit = "19"

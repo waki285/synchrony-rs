@@ -3,6 +3,7 @@
 //! This module provides the main `Deobfuscator` struct that orchestrates
 //! the deobfuscation process.
 
+use std::fmt;
 use std::sync::Arc;
 
 use swc_common::{
@@ -34,7 +35,7 @@ pub enum SourceType {
 ///
 /// When `custom_transformers` is `None` or an empty list, the default
 /// transformer pipeline is used.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DeobfuscateOptions {
     /// Source type for parsing
     pub source_type: SourceType,
@@ -57,6 +58,32 @@ pub struct DeobfuscateOptions {
     /// Custom transformers by name + options (TS config shape)
     #[cfg(feature = "cli")]
     pub custom_transformer_configs: Option<Vec<crate::transformers::TransformerConfig>>,
+}
+
+impl fmt::Debug for DeobfuscateOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut ds = f.debug_struct("DeobfuscateOptions");
+        ds.field("source_type", &self.source_type)
+            .field("rename", &self.rename)
+            .field("ecma_version", &self.ecma_version)
+            .field(
+                "transform_chain_expressions",
+                &self.transform_chain_expressions,
+            )
+            .field("loose", &self.loose)
+            .field(
+                "custom_transformers",
+                &self.custom_transformers.as_ref().map(|list| list.len()),
+            );
+        #[cfg(feature = "cli")]
+        {
+            ds.field(
+                "custom_transformer_configs",
+                &self.custom_transformer_configs,
+            );
+        }
+        ds.finish()
+    }
 }
 
 impl Default for DeobfuscateOptions {

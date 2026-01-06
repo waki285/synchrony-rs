@@ -4,6 +4,8 @@
 //! It stores the AST and the metadata collected by earlier passes (string
 //! arrays, decoder functions, control-flow storage, etc.).
 
+use std::fmt;
+
 use swc_ecma_ast::{Function, Lit, Program};
 
 use crate::transformers::TransformerBox;
@@ -42,7 +44,7 @@ pub struct DecoderReference {
 }
 
 /// Type of string array storage
-#[derive(Debug, Clone, Copy, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StringArrayType {
     Function,
     Array,
@@ -82,7 +84,7 @@ pub struct ControlFlowLiteral {
 /// Context for the deobfuscation process
 ///
 /// This holds the AST and all state that is shared between transformers.
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct Context {
     /// The AST being transformed
     pub ast: Program,
@@ -119,6 +121,28 @@ pub struct Context {
 
     /// List of transformers to run
     pub transformers: Vec<TransformerBox>,
+}
+
+impl fmt::Debug for Context {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Context")
+            .field("ast", &self.ast)
+            .field("source", &self.source)
+            .field("is_module", &self.is_module)
+            .field("hash", &self.hash)
+            .field("shifted_arrays", &self.shifted_arrays)
+            .field("string_arrays", &self.string_arrays)
+            .field("string_decoders", &self.string_decoders)
+            .field("string_decoder_references", &self.string_decoder_references)
+            .field(
+                "control_flow_storage_nodes",
+                &self.control_flow_storage_nodes,
+            )
+            .field("remove_garbage", &self.remove_garbage)
+            .field("rename_enabled", &self.rename_enabled)
+            .field("transformers_len", &self.transformers.len())
+            .finish()
+    }
 }
 
 impl Context {
