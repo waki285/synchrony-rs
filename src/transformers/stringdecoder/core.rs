@@ -120,6 +120,7 @@ pub(super) fn eval_const_i64(expr: &Expr) -> Option<i64> {
 pub struct StringDecoder;
 
 impl StringDecoder {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self

@@ -21,6 +21,7 @@ use crate::transformers::Transformer;
 pub struct SelfDefending;
 
 impl SelfDefending {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self

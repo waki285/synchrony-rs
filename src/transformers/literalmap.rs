@@ -28,6 +28,7 @@ use crate::transformers::Transformer;
 pub struct LiteralMap;
 
 impl LiteralMap {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self

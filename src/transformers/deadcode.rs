@@ -27,6 +27,7 @@ pub struct DeadCode;
 const MAX_GARBAGE_PASSES: usize = 3;
 
 impl DeadCode {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self
@@ -80,6 +81,7 @@ impl Default for DeadCode {
 pub struct DeadCodeSafe;
 
 impl DeadCodeSafe {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self

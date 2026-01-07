@@ -23,6 +23,7 @@ use crate::transformers::Transformer;
 pub struct ControlFlow;
 
 impl ControlFlow {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self

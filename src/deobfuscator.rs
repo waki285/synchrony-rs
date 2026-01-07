@@ -406,7 +406,6 @@ impl Deobfuscator {
 mod tests {
     use super::*;
     use crate::transformers::Simplify;
-    use std::sync::Arc;
 
     fn run_with_simplify(code: &str) -> String {
         let deob = Deobfuscator::new();
@@ -557,7 +556,7 @@ normalName(1);
         let options = DeobfuscateOptions {
             source_type: SourceType::Script,
             rename: false,
-            custom_transformers: Some(vec![Arc::new(transformers::Simplify::new())]),
+            custom_transformers: Some(vec![Arc::new(Simplify::new())]),
             ..Default::default()
         };
         let result = deob.deobfuscate_source(code, Some(options)).unwrap();

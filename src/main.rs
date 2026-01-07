@@ -13,9 +13,6 @@
     reason = "CLI tool should print output to stdout"
 )]
 
-extern crate alloc;
-
-use std::boxed::Box;
 use std::error::Error;
 use std::fs;
 use std::io::{self, IsTerminal as _, Read as _, Write as _};

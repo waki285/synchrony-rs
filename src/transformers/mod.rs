@@ -69,7 +69,9 @@ pub struct TransformerOptions;
 /// Name + options for a transformer, matches the TypeScript config shape.
 #[derive(Debug, Clone)]
 pub struct TransformerConfig {
+    /// Transformer name.
     pub name: String,
+    /// Transformer options payload.
     pub options: TransformerOptions,
 }
 

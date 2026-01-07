@@ -19,6 +19,7 @@ use crate::words::{MersenneTwister, generate_random_words};
 pub struct Rename;
 
 impl Rename {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self

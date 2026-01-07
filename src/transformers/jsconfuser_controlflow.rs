@@ -130,6 +130,7 @@ fn evaluate_binary_expr(stack: &VarStack, expr: &Expr) -> Option<f64> {
 pub struct JSConfuserControlFlow;
 
 impl JSConfuserControlFlow {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self

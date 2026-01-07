@@ -34,6 +34,7 @@ const ZERO_F64: f64 = 0.0;
 pub struct ArrayMap;
 
 impl ArrayMap {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self

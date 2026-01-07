@@ -21,6 +21,7 @@ use crate::transformers::Transformer;
 pub struct AntiDebug;
 
 impl AntiDebug {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self

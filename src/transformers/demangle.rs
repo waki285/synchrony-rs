@@ -18,6 +18,7 @@ use crate::transformers::Transformer;
 pub struct Demangle;
 
 impl Demangle {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self

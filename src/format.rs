@@ -1,6 +1,5 @@
 //! Biome-based JavaScript formatter helpers.
 
-use std::boxed::Box;
 use std::error::Error;
 
 use biome_formatter::{IndentStyle, IndentWidth};

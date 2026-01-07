@@ -37,8 +37,11 @@ pub struct ScopeData {
 /// Information about a scope
 #[derive(Debug, Default, Clone)]
 pub struct ScopeInfo {
+    /// Whether the scope contains a `with` statement.
     pub has_with_stmt: bool,
+    /// Whether the scope contains an `eval` call.
     pub has_eval_call: bool,
+    /// Whether the scope references `arguments`.
     pub used_arguments: bool,
 }
 
@@ -353,7 +356,6 @@ mod tests {
 
     fn parse_and_analyze(code: &str) -> ScopeData {
         use swc_common::{GLOBALS, Globals, SourceMap, sync::Lrc};
-        use swc_ecma_ast::EsVersion;
         use swc_ecma_parser::{EsSyntax, Syntax, parse_file_as_module};
 
         let cm: Lrc<SourceMap> = Lrc::default();

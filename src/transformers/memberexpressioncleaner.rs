@@ -25,6 +25,7 @@ static VALID_DOT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 pub struct MemberExpressionCleaner;
 
 impl MemberExpressionCleaner {
+    /// Creates a new transformer instance.
     #[must_use]
     pub const fn new() -> Self {
         Self
