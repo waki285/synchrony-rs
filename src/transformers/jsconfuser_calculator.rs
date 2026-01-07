@@ -17,6 +17,7 @@
 //! ```
 
 use std::collections::HashMap;
+use swc_common::Span;
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
@@ -91,7 +92,7 @@ impl CalcOperator {
     }
 
     #[must_use]
-    const fn from_binary_op(op: &BinaryOp) -> Option<Self> {
+    const fn from_binary_op(op: BinaryOp) -> Option<Self> {
         match op {
             BinaryOp::Add => Some(Self::Add),
             BinaryOp::Sub => Some(Self::Sub),
@@ -169,9 +170,8 @@ impl CalculatorFinder {
         }
 
         // Must be a switch statement
-        let switch_stmt = match stmts[0] {
-            Stmt::Switch(s) => s,
-            _ => return None,
+        let Stmt::Switch(switch_stmt) = stmts[0] else {
+            return None;
         };
 
         // Discriminant must be an identifier (the opcode parameter)
@@ -219,21 +219,17 @@ impl CalculatorFinder {
             }
 
             // Must be a return statement with binary expression
-            let ret_stmt = match non_empty[0] {
-                Stmt::Return(r) => r,
-                _ => return None,
+            let Stmt::Return(ret_stmt) = non_empty[0] else {
+                return None;
             };
 
-            let bin_expr = match ret_stmt.arg.as_ref() {
-                Some(arg) => match &**arg {
-                    Expr::Bin(b) => b,
-                    _ => return None,
-                },
-                None => return None,
+            let arg = ret_stmt.arg.as_ref()?;
+            let Expr::Bin(bin_expr) = &**arg else {
+                return None;
             };
 
             // Must be an allowed operator
-            let operator = CalcOperator::from_binary_op(&bin_expr.op)?;
+            let operator = CalcOperator::from_binary_op(bin_expr.op)?;
 
             // Left and right must be identifiers (parameters)
             let lhs_name = match &*bin_expr.left {
@@ -367,7 +363,7 @@ impl VisitMut for CalculatorReplacer {
 
                             // Replace with binary expression
                             *expr = Expr::Bin(BinExpr {
-                                span: Default::default(),
+                                span: Span::default(),
                                 op: op_case.operator.to_binary_op(),
                                 left,
                                 right,

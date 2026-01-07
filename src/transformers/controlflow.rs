@@ -118,7 +118,7 @@ impl VisitMut for EmptyObjectPopulator {
                     if let MemberProp::Ident(prop_ident) = &member.prop {
                         let prop = PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
                             key: PropName::Ident(IdentName {
-                                span: Default::default(),
+                                span: Span::default(),
                                 sym: prop_ident.sym.clone(),
                             }),
                             value: assign.right.clone(),
@@ -151,7 +151,7 @@ impl VisitMut for EmptyObjectPopulator {
         // Remove setter statements (in reverse order)
         for idx in stmts_to_remove.into_iter().rev() {
             block.stmts[idx] = Stmt::Empty(EmptyStmt {
-                span: Default::default(),
+                span: Span::default(),
             });
         }
 
@@ -331,7 +331,7 @@ impl<'a> ControlFlowStoragePass<'a> {
                 }
                 if var_decl.decls.is_empty() {
                     *stmt = Stmt::Empty(EmptyStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                     });
                 }
             }
@@ -379,7 +379,7 @@ impl<'a> ControlFlowStoragePass<'a> {
                 }
                 if var_decl.decls.is_empty() {
                     *stmt = Stmt::Empty(EmptyStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                     });
                 }
             }
@@ -403,9 +403,8 @@ impl VisitMut for ControlFlowStoragePass<'_> {
     fn visit_mut_block_stmt(&mut self, block: &mut BlockStmt) {
         block.visit_mut_children_with(self);
 
-        let bid = match self.collect_storage_for_block(block) {
-            Some(bid) => bid,
-            None => return,
+        let Some(bid) = self.collect_storage_for_block(block) else {
+            return;
         };
 
         let Some(mut storage) = self.storage_nodes.remove(&bid) else {
@@ -438,7 +437,7 @@ impl ControlFlowStoragePass<'_> {
             .iter()
             .filter_map(|item| match item {
                 ModuleItem::Stmt(stmt) => Some(stmt.clone()),
-                _ => None,
+                ModuleItem::ModuleDecl(_) => None,
             })
             .collect();
 
@@ -454,7 +453,7 @@ impl ControlFlowStoragePass<'_> {
                         new_items.push(ModuleItem::Stmt(stmt));
                     }
                 }
-                other => new_items.push(other),
+                ModuleItem::ModuleDecl(decl) => new_items.push(ModuleItem::ModuleDecl(decl)),
             }
         }
 
@@ -524,7 +523,7 @@ impl VisitMut for ControlFlowReplacer {
                     Expr::Lit(Lit::Num(n)) => Some(n.value.to_string()),
                     _ => None,
                 },
-                _ => None,
+                MemberProp::PrivateName(_) => None,
             };
 
             if let Some(prop_name) = prop_name
@@ -552,7 +551,7 @@ impl VisitMut for ControlFlowReplacer {
                     Expr::Lit(Lit::Num(n)) => Some(n.value.to_string()),
                     _ => None,
                 },
-                _ => None,
+                MemberProp::PrivateName(_) => None,
             };
 
             if let Some(prop_name) = prop_name
@@ -582,7 +581,7 @@ impl VisitMut for ParameterSubstitutor {
             // Wrap complex replacements to preserve operator precedence.
             if !matches!(replacement, Expr::Lit(_) | Expr::Ident(_) | Expr::Paren(_)) {
                 replacement = Expr::Paren(ParenExpr {
-                    span: Default::default(),
+                    span: Span::default(),
                     expr: Box::new(replacement),
                 });
             }
@@ -785,7 +784,7 @@ impl ControlFlowDeflattener {
 
         for idx in remove_decl_indices.into_iter().rev() {
             stmts[idx] = Stmt::Empty(EmptyStmt {
-                span: Default::default(),
+                span: Span::default(),
             });
         }
 
@@ -801,7 +800,7 @@ impl ControlFlowDeflattener {
             .iter()
             .filter_map(|item| match item {
                 ModuleItem::Stmt(stmt) => Some(stmt.clone()),
-                _ => None,
+                ModuleItem::ModuleDecl(_) => None,
             })
             .collect();
 
@@ -817,7 +816,7 @@ impl ControlFlowDeflattener {
                         new_items.push(ModuleItem::Stmt(stmt));
                     }
                 }
-                other => new_items.push(other),
+                ModuleItem::ModuleDecl(decl) => new_items.push(ModuleItem::ModuleDecl(decl)),
             }
         }
 

@@ -203,12 +203,12 @@ fn config_to_transformers(entries: Vec<ConfigTransformerEntry>) -> Vec<Transform
     entries
         .into_iter()
         .map(|entry| match entry {
-            ConfigTransformerEntry::Pair(name, options) => TransformerConfig { name, options },
             ConfigTransformerEntry::NameOnly(name) => TransformerConfig {
                 name,
                 options: Value::Null,
             },
-            ConfigTransformerEntry::Object { name, options } => TransformerConfig { name, options },
+            ConfigTransformerEntry::Pair(name, options)
+            | ConfigTransformerEntry::Object { name, options } => TransformerConfig { name, options },
         })
         .collect()
 }

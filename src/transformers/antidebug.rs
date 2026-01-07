@@ -5,6 +5,7 @@
 
 use std::collections::HashSet;
 
+use swc_common::{Span, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
@@ -128,8 +129,8 @@ impl AntiDebugRemover {
             body.stmts.clear();
         } else {
             func.body = Some(BlockStmt {
-                span: Default::default(),
-                ctxt: Default::default(),
+                span: Span::default(),
+                ctxt: SyntaxContext::default(),
                 stmts: Vec::new(),
             });
         }
@@ -137,8 +138,8 @@ impl AntiDebugRemover {
 
     fn clear_arrow_body(arrow: &mut ArrowExpr) {
         *arrow.body = BlockStmtOrExpr::BlockStmt(BlockStmt {
-            span: Default::default(),
-            ctxt: Default::default(),
+            span: Span::default(),
+            ctxt: SyntaxContext::default(),
             stmts: Vec::new(),
         });
     }
@@ -345,7 +346,7 @@ fn for_in_scrambles_object(stmt: &ForInStmt) -> bool {
             };
             (ident.sym.to_string(), obj.sym.to_string())
         }
-        _ => return false,
+        ForHead::UsingDecl(_) => return false,
     };
 
     let mut finder = ForInAssignFinder {

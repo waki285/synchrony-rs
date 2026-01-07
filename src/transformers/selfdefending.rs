@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use swc_common::GLOBALS;
+use swc_common::{Globals, GLOBALS, Span, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
@@ -42,7 +42,7 @@ impl Transformer for SelfDefending {
         let mut collector = SelfDefendingCollector::default();
         context.ast.visit_with(&mut collector);
 
-        let scope_data = GLOBALS.set(&Default::default(), || analyze(&context.ast));
+        let scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
 
         let mut remover = SelfDefendingRemover {
             constructors: collector.constructors,
@@ -64,7 +64,9 @@ struct SelfDefendingRemover {
 
 impl VisitMut for SelfDefendingRemover {
     fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
-        items.iter_mut().for_each(|item| item.visit_mut_with(self));
+        for item in items.iter_mut() {
+            item.visit_mut_with(self);
+        }
 
         items.retain(|item| match item {
             ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fn_decl))) => {
@@ -78,7 +80,9 @@ impl VisitMut for SelfDefendingRemover {
     }
 
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
-        stmts.iter_mut().for_each(|stmt| stmt.visit_mut_with(self));
+        for stmt in stmts.iter_mut() {
+            stmt.visit_mut_with(self);
+        }
 
         stmts.retain(|stmt| match stmt {
             Stmt::Decl(Decl::Fn(fn_decl)) => {
@@ -95,7 +99,7 @@ impl VisitMut for SelfDefendingRemover {
         if let Stmt::Expr(expr_stmt) = stmt {
             if is_self_defending_call_expr(&expr_stmt.expr) {
                 *stmt = Stmt::Empty(EmptyStmt {
-                    span: Default::default(),
+                    span: Span::default(),
                 });
                 return;
             }
@@ -108,7 +112,7 @@ impl VisitMut for SelfDefendingRemover {
                         .contains(&(ident.sym.clone(), ident.ctxt))
                 {
                     *stmt = Stmt::Empty(EmptyStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                     });
                     return;
                 }
@@ -119,7 +123,7 @@ impl VisitMut for SelfDefendingRemover {
                     && !self.declared_names.contains(ident.sym.as_ref())
                 {
                     *stmt = Stmt::Empty(EmptyStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                     });
                     return;
                 }
@@ -128,14 +132,14 @@ impl VisitMut for SelfDefendingRemover {
                     && is_undefined_obfuscated_call(call, scope_data)
                 {
                     *stmt = Stmt::Empty(EmptyStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                     });
                     return;
                 }
 
                 if call_targets_self_defending_constructor(call, &self.constructors) {
                     *stmt = Stmt::Empty(EmptyStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                     });
                     return;
                 }
@@ -204,12 +208,12 @@ impl VisitMut for SelfDefendingRemover {
 
 fn make_noop_function_expr() -> Expr {
     Expr::Arrow(ArrowExpr {
-        span: Default::default(),
-        ctxt: Default::default(),
+        span: Span::default(),
+        ctxt: SyntaxContext::default(),
         params: Vec::new(),
         body: Box::new(BlockStmtOrExpr::BlockStmt(BlockStmt {
-            span: Default::default(),
-            ctxt: Default::default(),
+            span: Span::default(),
+            ctxt: SyntaxContext::default(),
             stmts: Vec::new(),
         })),
         is_async: false,
@@ -412,9 +416,8 @@ impl Visit for SelfDefendingCollector {
 }
 
 fn prototype_base_name(target: &AssignTarget) -> Option<String> {
-    let member = match target {
-        AssignTarget::Simple(SimpleAssignTarget::Member(member)) => member,
-        _ => return None,
+    let AssignTarget::Simple(SimpleAssignTarget::Member(member)) = target else {
+        return None;
     };
 
     let Expr::Member(inner) = &*member.obj else {

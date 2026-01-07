@@ -12,7 +12,7 @@
 //! ```
 
 use std::collections::HashMap;
-use swc_common::GLOBALS;
+use swc_common::{Globals, GLOBALS, Span};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
@@ -51,7 +51,7 @@ impl Transformer for LiteralMap {
         context.ast.visit_mut_with(&mut visitor);
 
         // Then, do the literals transformation (replace read-only variables)
-        self.literals(context)?;
+        self.literals(context);
 
         Ok(())
     }
@@ -60,14 +60,13 @@ impl Transformer for LiteralMap {
 impl LiteralMap {
     /// Replace read-only variables with their literal values in functions
     /// This only applies to variables declared within functions, not global scope
-    fn literals(&self, context: &mut Context) -> Result<()> {
+    fn literals(&self, context: &mut Context) {
         // Apply only within functions
         let mut func_visitor = FunctionLiteralsVisitor {
             remove_garbage: context.remove_garbage,
         };
         context.ast.visit_mut_with(&mut func_visitor);
 
-        Ok(())
     }
 }
 
@@ -102,13 +101,13 @@ impl FunctionLiteralsVisitor {
     fn process_function_body(&self, body: &mut BlockStmt) {
         // Create a temporary module to analyze the function body
         let temp_module = Module {
-            span: Default::default(),
+            span: Span::default(),
             body: body.stmts.iter().cloned().map(ModuleItem::Stmt).collect(),
             shebang: None,
         };
 
         // Analyze variable usage within this function
-        let scope_data = GLOBALS.set(&Default::default(), || analyze(&temp_module));
+        let scope_data = GLOBALS.set(&Globals::default(), || analyze(&temp_module));
 
         // Find read-only variables that are initialized with literals
         let mut read_only_literals: HashMap<Id, Expr> = HashMap::new();
@@ -147,35 +146,35 @@ impl LiteralValue {
     fn to_expr(&self) -> Expr {
         match self {
             Self::String(s) => Expr::Lit(Lit::Str(Str {
-                span: Default::default(),
+                span: Span::default(),
                 value: s.as_str().into(),
                 raw: None,
             })),
             Self::Number(n) => {
                 if *n < 0.0 {
                     Expr::Unary(UnaryExpr {
-                        span: Default::default(),
+                        span: Span::default(),
                         op: UnaryOp::Minus,
                         arg: Box::new(Expr::Lit(Lit::Num(Number {
-                            span: Default::default(),
+                            span: Span::default(),
                             value: -n,
                             raw: None,
                         }))),
                     })
                 } else {
                     Expr::Lit(Lit::Num(Number {
-                        span: Default::default(),
+                        span: Span::default(),
                         value: *n,
                         raw: None,
                     }))
                 }
             }
             Self::Bool(b) => Expr::Lit(Lit::Bool(Bool {
-                span: Default::default(),
+                span: Span::default(),
                 value: *b,
             })),
             Self::Null => Expr::Lit(Lit::Null(Null {
-                span: Default::default(),
+                span: Span::default(),
             })),
         }
     }
@@ -310,7 +309,7 @@ impl VisitMut for LiteralMapVisitor {
                             None
                         }
                     }
-                    _ => None,
+                    MemberProp::PrivateName(_) => None,
                 };
 
                 if let Some(key) = key

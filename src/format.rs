@@ -9,6 +9,11 @@ use biome_js_syntax::JsFileSource;
 
 use crate::deobfuscator::SourceType;
 
+/// Format JavaScript source using Biome.
+///
+/// # Errors
+///
+/// Returns an error if Biome fails to parse the input or if formatting fails.
 pub fn format_js(source: &str, source_type: SourceType) -> Result<String, Box<dyn Error>> {
     let (syntax, file_source) = match source_type {
         SourceType::Module => {

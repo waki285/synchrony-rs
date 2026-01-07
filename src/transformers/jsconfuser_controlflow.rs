@@ -15,6 +15,7 @@
 //! After transformation, case values are simplified to match direct x values.
 
 use std::collections::HashMap;
+use swc_common::{Span, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
@@ -241,7 +242,7 @@ impl Deflattener {
 
         // Left side should be additive expression with identifiers
         let mut stack: VarStack = HashMap::new();
-        self.extract_state_vars(&bin_test.left, &mut stack);
+        Self::extract_state_vars(&bin_test.left, &mut stack);
 
         if stack.is_empty() {
             return None;
@@ -251,9 +252,8 @@ impl Deflattener {
         self.initialize_stack_from_block(&mut stack, block);
 
         // Get while body
-        let body_block = match &*while_stmt.body {
-            Stmt::Block(b) => b,
-            _ => return None,
+        let Stmt::Block(body_block) = &*while_stmt.body else {
+            return None;
         };
 
         // Find switch statement at end of body
@@ -282,15 +282,15 @@ impl Deflattener {
     }
 
     /// Extract state variable names from binary expression
-    fn extract_state_vars(&self, expr: &Expr, stack: &mut VarStack) {
+    fn extract_state_vars(expr: &Expr, stack: &mut VarStack) {
         match expr {
             Expr::Ident(id) => {
                 // Initialize with 0 for now, will be updated from declarations
                 stack.insert(id.sym.to_string(), 0.0);
             }
             Expr::Bin(bin) => {
-                self.extract_state_vars(&bin.left, stack);
-                self.extract_state_vars(&bin.right, stack);
+                Self::extract_state_vars(&bin.left, stack);
+                Self::extract_state_vars(&bin.right, stack);
             }
             _ => {}
         }
@@ -330,6 +330,10 @@ impl Deflattener {
             // Evaluate while condition left side
             let while_state = evaluate_binary_expr(stack, while_test_left)?;
 
+            #[expect(
+                clippy::float_cmp,
+                reason = "JS control-flow state comparisons are exact numeric matches"
+            )]
             if while_state == end_state {
                 crate::log_debug!("[JSConfuserControlFlow] Loop ended at iter {}", iter);
                 break;
@@ -350,9 +354,8 @@ impl Deflattener {
             })?;
 
             // Extract and process case body
-            if let Some(stmts) = self.process_case_body(&matching_case.cons, stack) {
-                all_expressions.extend(stmts);
-            }
+            let stmts = self.process_case_body(&matching_case.cons, stack);
+            all_expressions.extend(stmts);
         }
 
         if all_expressions.is_empty() {
@@ -363,12 +366,12 @@ impl Deflattener {
     }
 
     /// Process case body and extract statements, updating stack as needed
-    fn process_case_body(&self, stmts: &[Stmt], stack: &mut VarStack) -> Option<Vec<Stmt>> {
+    fn process_case_body(&self, stmts: &[Stmt], stack: &mut VarStack) -> Vec<Stmt> {
         let mut result: Vec<Stmt> = vec![];
 
         for stmt in stmts {
             match stmt {
-                Stmt::Break(_) => continue,
+                Stmt::Break(_) => {}
                 Stmt::Expr(expr_stmt) => {
                     // Check for void sequence expression pattern
                     if let Expr::Unary(unary) = &*expr_stmt.expr
@@ -382,12 +385,11 @@ impl Deflattener {
                             } else {
                                 // Non-assignment expression - keep it
                                 result.push(Stmt::Expr(ExprStmt {
-                                    span: Default::default(),
+                                    span: Span::default(),
                                     expr: expr.clone(),
                                 }));
                             }
                         }
-                        continue;
                     }
                     // Regular expression statement
                     result.push(stmt.clone());
@@ -398,7 +400,7 @@ impl Deflattener {
             }
         }
 
-        Some(result)
+        result
     }
 
     /// Process an assignment expression, updating stack for state vars
@@ -424,7 +426,7 @@ impl Deflattener {
 
         // Keep non-state-variable assignments
         result.push(Stmt::Expr(ExprStmt {
-            span: Default::default(),
+            span: Span::default(),
             expr: Box::new(Expr::Assign(assign.clone())),
         }));
     }
@@ -586,11 +588,11 @@ impl SwitchFixer {
                                                     // Replace test with new value
                                                     *test = if nv < 0.0 {
                                                         Box::new(Expr::Unary(UnaryExpr {
-                                                            span: Default::default(),
+                                                            span: Span::default(),
                                                             op: UnaryOp::Minus,
                                                             arg: Box::new(Expr::Lit(Lit::Num(
                                                                 Number {
-                                                                    span: Default::default(),
+                                                                    span: Span::default(),
                                                                     value: -nv,
                                                                     raw: None,
                                                                 },
@@ -598,7 +600,7 @@ impl SwitchFixer {
                                                         }))
                                                     } else {
                                                         Box::new(Expr::Lit(Lit::Num(Number {
-                                                            span: Default::default(),
+                                                            span: Span::default(),
                                                             value: nv,
                                                             raw: None,
                                                         })))
@@ -611,8 +613,8 @@ impl SwitchFixer {
                                     // Replace discriminant with the inner variable
                                     *switch_stmt.discriminant = Expr::Ident(Ident::new(
                                         inner_var.into(),
-                                        Default::default(),
-                                        Default::default(),
+                                        Span::default(),
+                                        SyntaxContext::default(),
                                     ));
                                 }
                             }

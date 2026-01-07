@@ -3,6 +3,7 @@
 //! Demangles proxy functions and fixes function structures.
 //! This handles patterns commonly used by obfuscators for the string decoder.
 
+use swc_common::{Span, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
@@ -101,22 +102,22 @@ impl VisitMut for DemangleProxyVisitor {
                     let new_stmts = vec![
                         non_empty[0].clone(),
                         Stmt::Expr(ExprStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                             expr: Box::new(Expr::Assign(AssignExpr {
-                                span: Default::default(),
+                                span: Span::default(),
                                 op: AssignOp::Assign,
                                 left: assign.left.clone(),
                                 right: assign.right.clone(),
                             })),
                         }),
                         Stmt::Return(ReturnStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                             arg: Some(Box::new(Expr::Call(CallExpr {
-                                span: Default::default(),
+                                span: Span::default(),
                                 callee: Callee::Expr(Box::new(Expr::Ident(Ident::new(
                                     func_name.into(),
-                                    Default::default(),
-                                    Default::default(),
+                                    Span::default(),
+                                    SyntaxContext::default(),
                                 )))),
                                 args: call.args.clone(),
                                 ..Default::default()
@@ -141,17 +142,17 @@ impl VisitMut for DemangleProxyVisitor {
                     let new_stmts = vec![
                         non_empty[0].clone(),
                         Stmt::Expr(ExprStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                             expr: Box::new(Expr::Assign(assign.clone())),
                         }),
                         Stmt::Return(ReturnStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                             arg: Some(Box::new(Expr::Call(CallExpr {
-                                span: Default::default(),
+                                span: Span::default(),
                                 callee: Callee::Expr(Box::new(Expr::Ident(Ident::new(
                                     func_name.into(),
-                                    Default::default(),
-                                    Default::default(),
+                                    Span::default(),
+                                    SyntaxContext::default(),
                                 )))),
                                 args: call.args.clone(),
                                 ..Default::default()
@@ -252,28 +253,28 @@ impl VisitMut for DemangleStringFuncsVisitor {
 
         // Create new statement: offsetId = offsetId - offsetVal
         let offset_stmt = Stmt::Expr(ExprStmt {
-            span: Default::default(),
+            span: Span::default(),
             expr: Box::new(Expr::Assign(AssignExpr {
-                span: Default::default(),
+                span: Span::default(),
                 op: AssignOp::Assign,
                 left: AssignTarget::Simple(SimpleAssignTarget::Ident(BindingIdent {
                     id: Ident::new(
                         offset_name.clone().into(),
-                        Default::default(),
-                        Default::default(),
+                        Span::default(),
+                        SyntaxContext::default(),
                     ),
                     type_ann: None,
                 })),
                 right: Box::new(Expr::Bin(BinExpr {
-                    span: Default::default(),
+                    span: Span::default(),
                     op: BinaryOp::Sub,
                     left: Box::new(Expr::Ident(Ident::new(
                         offset_name.clone().into(),
-                        Default::default(),
-                        Default::default(),
+                        Span::default(),
+                        SyntaxContext::default(),
                     ))),
                     right: Box::new(Expr::Lit(Lit::Num(Number {
-                        span: Default::default(),
+                        span: Span::default(),
                         value: offset_value,
                         raw: None,
                     }))),
@@ -290,11 +291,11 @@ impl VisitMut for DemangleStringFuncsVisitor {
             && let Expr::Member(member) = &mut **init
         {
             member.prop = MemberProp::Computed(ComputedPropName {
-                span: Default::default(),
+                span: Span::default(),
                 expr: Box::new(Expr::Ident(Ident::new(
                     offset_name.into(),
-                    Default::default(),
-                    Default::default(),
+                    Span::default(),
+                    SyntaxContext::default(),
                 ))),
             });
         }
@@ -325,7 +326,7 @@ impl VisitMut for DemangleStringFuncsVisitor {
 
         // Update the assignment
         body.stmts[1] = Stmt::Expr(ExprStmt {
-            span: Default::default(),
+            span: Span::default(),
             expr: Box::new(Expr::Assign(AssignExpr {
                 span: assign.span,
                 op: assign.op,
@@ -433,7 +434,9 @@ impl VisitMut for DemangleIIFEVisitor {
 
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
         // Visit children first
-        stmts.iter_mut().for_each(|stmt| stmt.visit_mut_with(self));
+        for stmt in stmts.iter_mut() {
+            stmt.visit_mut_with(self);
+        }
 
         // Remove empty statements
         stmts.retain(|stmt| !matches!(stmt, Stmt::Empty(_)));

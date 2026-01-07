@@ -29,9 +29,9 @@ pub struct ScopeData {
     /// Top-level scope data
     pub top: ScopeInfo,
     /// Child scopes
-    scopes: Vec<ScopeInfo>,
+    pub scopes: Vec<ScopeInfo>,
     /// Initialized variables
-    initialized_vars: Vec<Id>,
+    pub initialized_vars: Vec<Id>,
 }
 
 /// Information about a scope

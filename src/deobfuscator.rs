@@ -7,7 +7,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use swc_common::{
-    FileName, GLOBALS, SourceMap,
+    FileName, Globals, GLOBALS, SourceMap,
     errors::{ColorConfig, Handler},
     sync::Lrc,
 };
@@ -264,6 +264,10 @@ impl Deobfuscator {
     }
 
     /// Deobfuscate an AST
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any transformer in the pipeline fails.
     pub fn deobfuscate_program(
         &self,
         program: Program,
@@ -286,10 +290,11 @@ impl Deobfuscator {
 
         let transformer_list = self.build_transformers(&options, transformers)?;
 
-        let mut context = Context::new(program, transformer_list, is_module, source.clone());
+        let source_hash_value = source.as_ref().map(|src| source_hash(src));
+        let mut context = Context::new(program, transformer_list, is_module, source);
         context.rename_enabled = options.rename;
-        if let Some(ref src) = source {
-            context.hash = source_hash(src);
+        if let Some(hash) = source_hash_value {
+            context.hash = hash;
         }
 
         self.run_transformers(&mut context)?;
@@ -367,6 +372,10 @@ impl Deobfuscator {
     }
 
     /// Deobfuscate JavaScript source code
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if parsing fails, a transformer fails, or code generation fails.
     pub fn deobfuscate_source(
         &self,
         source: &str,
@@ -383,7 +392,7 @@ impl Deobfuscator {
         let out_cm: Lrc<SourceMap> = Lrc::new(SourceMap::default());
 
         let ecma_version = options.ecma_version;
-        GLOBALS.set(&Default::default(), || {
+        GLOBALS.set(&Globals::default(), || {
             let program = self.deobfuscate_program_internal(
                 program,
                 Some(options),

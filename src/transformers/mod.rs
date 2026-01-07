@@ -50,6 +50,10 @@ pub trait Transformer: Send + Sync {
     fn name(&self) -> &'static str;
 
     /// Transform the AST in the given context
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transformer fails to apply.
     fn transform(&self, context: &mut Context) -> Result<()>;
 }
 
@@ -70,6 +74,10 @@ pub struct TransformerConfig {
 }
 
 /// Create a transformer by name
+///
+/// # Errors
+///
+/// Returns an error if the transformer name is unknown.
 pub fn create_transformer(name: &str) -> Result<TransformerBox> {
     match name.to_lowercase().as_str() {
         "antidebug" | "anti_debug" => Ok(Arc::new(AntiDebug::new())),
@@ -112,6 +120,10 @@ fn transformer_options_empty(_options: &TransformerOptions) -> bool {
 }
 
 /// Create a transformer from config (options are currently ignored).
+///
+/// # Errors
+///
+/// Returns an error if the transformer name is unknown or options are invalid.
 pub fn create_transformer_from_config(config: &TransformerConfig) -> Result<TransformerBox> {
     let transformer = create_transformer(&config.name)?;
     if !transformer_options_empty(&config.options) {
@@ -124,6 +136,10 @@ pub fn create_transformer_from_config(config: &TransformerConfig) -> Result<Tran
 }
 
 /// Create transformers from config list (options are currently ignored).
+///
+/// # Errors
+///
+/// Returns an error if any transformer name is unknown or options are invalid.
 pub fn transformers_from_configs(configs: &[TransformerConfig]) -> Result<Vec<TransformerBox>> {
     let mut out = Vec::with_capacity(configs.len());
     for cfg in configs {

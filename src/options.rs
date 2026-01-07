@@ -25,6 +25,10 @@ pub const fn map_es_version_num(value: u32) -> Option<EsVersion> {
 }
 
 /// Parse ECMAScript version string (e.g. "es2020", "2020", "latest").
+///
+/// # Errors
+///
+/// Returns an error if the version string is empty or not recognized.
 pub fn parse_es_version_str(raw: &str) -> Result<EsVersion, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -47,6 +51,10 @@ pub fn parse_es_version_str(raw: &str) -> Result<EsVersion, String> {
 }
 
 /// Parse source type string ("script", "module", or "both").
+///
+/// # Errors
+///
+/// Returns an error if the source type is not recognized.
 pub fn parse_source_type_str(raw: &str) -> Result<SourceType, String> {
     match raw.trim().to_lowercase().as_str() {
         "module" => Ok(SourceType::Module),

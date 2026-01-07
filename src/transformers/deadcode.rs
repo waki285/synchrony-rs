@@ -8,7 +8,7 @@
 //! - Remove unused obfuscated declarations that are side-effect free
 
 use std::collections::{HashMap, HashSet};
-use swc_common::{GLOBALS, Span};
+use swc_common::{Globals, GLOBALS, Span};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
@@ -72,7 +72,7 @@ impl Transformer for DeadCode {
         if context.remove_garbage && !context.rename_enabled {
             // Remove unused obfuscated identifiers after simplifications.
             for _ in 0..3 {
-                let scope_data = GLOBALS.set(&Default::default(), || analyze(&context.ast));
+                let scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
                 if scope_data.top.has_with_stmt || scope_data.top.has_eval_call {
                     break;
                 }
@@ -86,7 +86,7 @@ impl Transformer for DeadCode {
         }
 
         if context.remove_garbage {
-            let scope_data = GLOBALS.set(&Default::default(), || analyze(&context.ast));
+            let scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
             if !scope_data.top.has_with_stmt && !scope_data.top.has_eval_call {
                 let mut remover = UndefinedObfuscatedCallRemover::new(&scope_data);
                 context.ast.visit_mut_with(&mut remover);
@@ -114,7 +114,7 @@ impl Transformer for DeadCodeSafe {
         }
 
         for _ in 0..3 {
-            let scope_data = GLOBALS.set(&Default::default(), || analyze(&context.ast));
+            let scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
             if scope_data.top.has_with_stmt || scope_data.top.has_eval_call {
                 break;
             }
@@ -161,9 +161,9 @@ impl DeadCode {
     /// Remove unreferenced variables
     /// Note: This is disabled by default in the original TypeScript implementation
     #[expect(dead_code)]
-    fn remove_dead_variables(&self, context: &mut Context) -> Result<()> {
+    fn remove_dead_variables(&self, context: &mut Context) {
         // Analyze variable usage
-        let scope_data = GLOBALS.set(&Default::default(), || analyze(&context.ast));
+        let scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
 
         // Find dead variables (declared but never referenced)
         let mut dead_vars: HashSet<Id> = HashSet::new();
@@ -187,7 +187,6 @@ impl DeadCode {
         };
         context.ast.visit_mut_with(&mut remover);
 
-        Ok(())
     }
 }
 
@@ -227,7 +226,7 @@ impl VisitMut for DeadCodeVisitor {
                     // Flip the branches
                     if let Some(alt) = if_stmt.alt.take() {
                         *if_stmt.test = Expr::Lit(Lit::Bool(Bool {
-                            span: Default::default(),
+                            span: Span::default(),
                             value: true,
                         }));
                         if_stmt.cons = alt;
@@ -235,7 +234,7 @@ impl VisitMut for DeadCodeVisitor {
                     } else {
                         // if(false) { A } with no else -> empty
                         *stmt = Stmt::Empty(EmptyStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                         });
                         return;
                     }
@@ -248,7 +247,7 @@ impl VisitMut for DeadCodeVisitor {
             && is_bool_literal(&while_stmt.test, false)
         {
             *stmt = Stmt::Empty(EmptyStmt {
-                span: Default::default(),
+                span: Span::default(),
             });
         }
 
@@ -257,7 +256,7 @@ impl VisitMut for DeadCodeVisitor {
             && is_empty_iife_call(call)
         {
             *stmt = Stmt::Empty(EmptyStmt {
-                span: Default::default(),
+                span: Span::default(),
             });
         }
     }
@@ -272,7 +271,9 @@ struct BlockCleanupVisitor;
 impl VisitMut for BlockCleanupVisitor {
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
         // First, visit children
-        stmts.iter_mut().for_each(|stmt| stmt.visit_mut_with(self));
+        for stmt in stmts.iter_mut() {
+            stmt.visit_mut_with(self);
+        }
 
         // Remove empty statements and empty variable declarations
         stmts.retain(|stmt| {
@@ -305,7 +306,9 @@ impl VisitMut for BlockCleanupVisitor {
 
     fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
         // First, visit children
-        items.iter_mut().for_each(|item| item.visit_mut_with(self));
+        for item in items.iter_mut() {
+            item.visit_mut_with(self);
+        }
 
         // Remove empty statements and empty variable declarations
         items.retain(|item| {
@@ -356,7 +359,7 @@ impl VisitMut for ObfuscatedDeadCodeRemover<'_> {
         {
             self.changed = true;
             *stmt = Stmt::Empty(EmptyStmt {
-                span: Default::default(),
+                span: Span::default(),
             });
         }
     }
@@ -388,9 +391,9 @@ impl VisitMut for ObfuscatedDeadCodeRemover<'_> {
     }
 
     fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
-        items
-            .iter_mut()
-            .for_each(|item| item.visit_mut_children_with(self));
+        for item in items.iter_mut() {
+            item.visit_mut_children_with(self);
+        }
 
         items.retain(|item| match item {
             ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fn_decl))) => {
@@ -409,9 +412,9 @@ impl VisitMut for ObfuscatedDeadCodeRemover<'_> {
     }
 
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
-        stmts
-            .iter_mut()
-            .for_each(|stmt| stmt.visit_mut_children_with(self));
+        for stmt in stmts.iter_mut() {
+            stmt.visit_mut_children_with(self);
+        }
 
         stmts.retain(|stmt| match stmt {
             Stmt::Decl(Decl::Fn(fn_decl)) => {
@@ -619,7 +622,7 @@ impl VisitMut for SafeEmptyIifeRemover {
             && is_empty_iife_call(call)
         {
             *stmt = Stmt::Empty(EmptyStmt {
-                span: Default::default(),
+                span: Span::default(),
             });
             self.changed = true;
         }
@@ -678,7 +681,7 @@ impl VisitMut for SafeNoopCallRemover<'_> {
         }
 
         *stmt = Stmt::Empty(EmptyStmt {
-            span: Default::default(),
+            span: Span::default(),
         });
         self.changed = true;
     }
@@ -870,9 +873,9 @@ impl VisitMut for UnusedDeclarationRemover<'_> {
     }
 
     fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
-        items
-            .iter_mut()
-            .for_each(|item| item.visit_mut_children_with(self));
+        for item in items.iter_mut() {
+            item.visit_mut_children_with(self);
+        }
 
         items.retain(|item| match item {
             ModuleItem::Stmt(Stmt::Empty(_)) => false,
@@ -886,9 +889,9 @@ impl VisitMut for UnusedDeclarationRemover<'_> {
     }
 
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
-        stmts
-            .iter_mut()
-            .for_each(|stmt| stmt.visit_mut_children_with(self));
+        for stmt in stmts.iter_mut() {
+            stmt.visit_mut_children_with(self);
+        }
 
         stmts.retain(|stmt| match stmt {
             Stmt::Empty(_) => false,
@@ -968,7 +971,7 @@ fn is_noop_function_value(expr: &Expr) -> bool {
 fn is_empty_function_body(func: &Function) -> bool {
     func.body
         .as_ref()
-        .map_or(true, |body| body.stmts.iter().all(|stmt| matches!(stmt, Stmt::Empty(_))))
+        .is_none_or(|body| body.stmts.iter().all(|stmt| matches!(stmt, Stmt::Empty(_))))
 }
 
 #[must_use]
@@ -1040,7 +1043,7 @@ impl VisitMut for UndefinedObfuscatedCallRemover<'_> {
             && self.is_undefined_obfuscated_ident(ident)
         {
             *stmt = Stmt::Empty(EmptyStmt {
-                span: Default::default(),
+                span: Span::default(),
             });
         }
     }
@@ -1064,7 +1067,7 @@ fn is_pure_iife_call(call: &CallExpr) -> bool {
         Some(IifeCallee::Function(func)) => func
             .body
             .as_ref()
-            .map_or(true, |body| is_pure_stmt_list(&body.stmts)),
+            .is_none_or(|body| is_pure_stmt_list(&body.stmts)),
         Some(IifeCallee::Arrow(arrow)) => match &*arrow.body {
             BlockStmtOrExpr::BlockStmt(block) => is_pure_stmt_list(&block.stmts),
             BlockStmtOrExpr::Expr(expr) => is_pure_expr(expr),
@@ -1135,18 +1138,17 @@ fn is_pure_stmt_list(stmts: &[Stmt]) -> bool {
 #[must_use]
 fn is_pure_stmt(stmt: &Stmt) -> bool {
     match stmt {
-        Stmt::Empty(_) => true,
         Stmt::Decl(Decl::Var(var_decl)) => var_decl.decls.iter().all(|decl| {
             decl.init
                 .as_ref()
-                .map_or(true, |init| is_pure_expr(init))
+                .is_none_or(|init| is_pure_expr(init))
         }),
-        Stmt::Decl(Decl::Fn(_)) => true,
+        Stmt::Empty(_) | Stmt::Decl(Decl::Fn(_)) => true,
         Stmt::Block(block) => is_pure_stmt_list(&block.stmts),
         Stmt::Return(ret) => ret
             .arg
             .as_ref()
-            .map_or(true, |arg| is_pure_expr(arg)),
+            .is_none_or(|arg| is_pure_expr(arg)),
         _ => false,
     }
 }
@@ -1154,9 +1156,7 @@ fn is_pure_stmt(stmt: &Stmt) -> bool {
 #[must_use]
 fn is_pure_expr(expr: &Expr) -> bool {
     match expr {
-        Expr::Ident(_) => true,
-        Expr::Lit(_) => true,
-        Expr::Fn(_) | Expr::Arrow(_) => true,
+        Expr::Ident(_) | Expr::Lit(_) | Expr::Fn(_) | Expr::Arrow(_) => true,
         Expr::Paren(paren) => is_pure_expr(&paren.expr),
         Expr::Unary(unary) => {
             matches!(
@@ -1172,11 +1172,10 @@ fn is_pure_expr(expr: &Expr) -> bool {
         Expr::Object(obj) => obj.props.iter().all(|prop| match prop {
             PropOrSpread::Prop(prop) => match &**prop {
                 Prop::KeyValue(kv) => is_pure_expr(&kv.value),
-                Prop::Method(_) | Prop::Getter(_) | Prop::Setter(_) => true,
-                Prop::Shorthand(_) => true,
-                _ => false,
+                Prop::Method(_) | Prop::Getter(_) | Prop::Setter(_) | Prop::Shorthand(_) => true,
+                Prop::Assign(_) => false,
             },
-            _ => false,
+            PropOrSpread::Spread(_) => false,
         }),
         Expr::Call(call) => is_pure_iife_call(call),
         _ => false,
@@ -1193,7 +1192,7 @@ fn is_empty_iife_call(call: &CallExpr) -> bool {
         Some(IifeCallee::Function(func)) => func
             .body
             .as_ref()
-            .map_or(true, |body| body.stmts.iter().all(|stmt| matches!(stmt, Stmt::Empty(_)))),
+            .is_none_or(|body| body.stmts.iter().all(|stmt| matches!(stmt, Stmt::Empty(_)))),
         Some(IifeCallee::Arrow(arrow)) => match &*arrow.body {
             BlockStmtOrExpr::BlockStmt(block) => block
                 .stmts
@@ -1281,15 +1280,15 @@ mod tests {
     #[test]
     fn test_is_bool_literal() {
         let true_lit = Expr::Lit(Lit::Bool(Bool {
-            span: Default::default(),
+            span: Span::default(),
             value: true,
         }));
         let false_lit = Expr::Lit(Lit::Bool(Bool {
-            span: Default::default(),
+            span: Span::default(),
             value: false,
         }));
         let num_lit = Expr::Lit(Lit::Num(Number {
-            span: Default::default(),
+            span: Span::default(),
             value: 1.0,
             raw: None,
         }));

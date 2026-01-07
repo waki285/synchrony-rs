@@ -196,9 +196,9 @@ impl StringArrayDeclarationRemover {
 
 impl VisitMut for StringArrayDeclarationRemover {
     fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
-        items
-            .iter_mut()
-            .for_each(|item| item.visit_mut_children_with(self));
+        for item in items.iter_mut() {
+            item.visit_mut_children_with(self);
+        }
 
         items.retain(|item| match item {
             ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fn_decl))) => {
@@ -211,9 +211,9 @@ impl VisitMut for StringArrayDeclarationRemover {
     }
 
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
-        stmts
-            .iter_mut()
-            .for_each(|stmt| stmt.visit_mut_children_with(self));
+        for stmt in stmts.iter_mut() {
+            stmt.visit_mut_children_with(self);
+        }
 
         stmts.retain(|stmt| match stmt {
             Stmt::Decl(Decl::Fn(fn_decl)) => {

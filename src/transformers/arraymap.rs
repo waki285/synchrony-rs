@@ -16,6 +16,7 @@
 //! ```
 
 use std::collections::HashMap;
+use swc_common::Span;
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
@@ -70,31 +71,31 @@ impl ArrayValue {
         match self {
             Self::Null => None,
             Self::String(s) => Some(Expr::Lit(Lit::Str(Str {
-                span: Default::default(),
+                span: Span::default(),
                 value: s.as_str().into(),
                 raw: None,
             }))),
             Self::Number(n) => {
                 if *n < 0.0 {
                     Some(Expr::Unary(UnaryExpr {
-                        span: Default::default(),
+                        span: Span::default(),
                         op: UnaryOp::Minus,
                         arg: Box::new(Expr::Lit(Lit::Num(Number {
-                            span: Default::default(),
+                            span: Span::default(),
                             value: -n,
                             raw: None,
                         }))),
                     }))
                 } else {
                     Some(Expr::Lit(Lit::Num(Number {
-                        span: Default::default(),
+                        span: Span::default(),
                         value: *n,
                         raw: None,
                     })))
                 }
             }
             Self::Bool(b) => Some(Expr::Lit(Lit::Bool(Bool {
-                span: Default::default(),
+                span: Span::default(),
                 value: *b,
             }))),
         }
@@ -113,15 +114,12 @@ impl ArrayMapVisitor {
         }
 
         let first = arr.elems.first()?;
-        match first {
-            Some(ExprOrSpread { expr, .. }) => {
-                if !matches!(&**expr, Expr::Lit(Lit::Null(_))) {
-                    return None;
-                }
+        if let Some(ExprOrSpread { expr, .. }) = first {
+            if !matches!(&**expr, Expr::Lit(Lit::Null(_))) {
+                return None;
             }
-            None => {
-                // Hole in array - treat as null
-            }
+        } else {
+            // Hole in array - treat as null
         }
 
         let mut values = Vec::new();
@@ -219,7 +217,7 @@ impl ArrayMapVisitor {
         // Remove the array declarations (in reverse order to maintain indices)
         for idx in decls_to_remove.into_iter().rev() {
             stmts[idx] = Stmt::Empty(EmptyStmt {
-                span: Default::default(),
+                span: Span::default(),
             });
         }
 

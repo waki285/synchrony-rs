@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use swc_common::Span;
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
@@ -164,7 +165,7 @@ impl VisitMut for StringDecoderReplacer<'_> {
 
             if let Some(decoded) = self.decode(&name, &call.args) {
                 *expr = Expr::Lit(Lit::Str(Str {
-                    span: Default::default(),
+                    span: Span::default(),
                     value: decoded.into(),
                     raw: None,
                 }));

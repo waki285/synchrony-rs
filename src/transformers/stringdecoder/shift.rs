@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
@@ -79,15 +79,15 @@ impl VisitMut for StringArrayRotator {
 
 /// Removes rotation IIFEs once the array has been rotated in the AST
 pub(super) struct RotationIifeRemover {
-    rotated_names: HashMap<String, ()>,
+    rotated_names: HashSet<String>,
 }
 
 impl RotationIifeRemover {
     #[must_use]
     pub(super) fn new(rotations: &[(String, usize)]) -> Self {
-        let mut map = HashMap::new();
+        let mut map = HashSet::new();
         for (name, _) in rotations {
-            map.insert(name.clone(), ());
+            map.insert(name.clone());
         }
         Self { rotated_names: map }
     }
@@ -105,7 +105,7 @@ impl RotationIifeRemover {
         let Some(array_name) = Self::extract_array_name(call) else {
             return false;
         };
-        if !self.rotated_names.contains_key(&array_name) {
+        if !self.rotated_names.contains(&array_name) {
             return false;
         }
         let Callee::Expr(callee) = &call.callee else {
@@ -193,7 +193,7 @@ impl<'a> ShiftFinder<'a> {
                         false
                     }
                 }
-                _ => false,
+                MemberProp::PrivateName(_) => false,
             }
         }
 

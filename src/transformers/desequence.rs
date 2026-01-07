@@ -3,6 +3,7 @@
 //! Splits sequence expressions into individual statements.
 //! Example: `a = 1, b = 2, c = 3;` -> `a = 1; b = 2; c = 3;`
 
+use swc_common::Span;
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
@@ -84,7 +85,7 @@ impl DesequenceVisitor {
                 let mut new_stmts = Vec::with_capacity(seq.exprs.len());
                 for expr in seq.exprs.iter().take(seq.exprs.len() - 1) {
                     new_stmts.push(Stmt::Expr(ExprStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                         expr: expr.clone(),
                     }));
                 }
@@ -110,7 +111,7 @@ impl DesequenceVisitor {
                     .iter()
                     .map(|e| {
                         Stmt::Expr(ExprStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                             expr: e.clone(),
                         })
                     })
@@ -130,7 +131,9 @@ impl DesequenceVisitor {
 impl VisitMut for DesequenceVisitor {
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
         // First visit children
-        stmts.iter_mut().for_each(|stmt| stmt.visit_mut_with(self));
+        for stmt in stmts.iter_mut() {
+            stmt.visit_mut_with(self);
+        }
 
         // Then process this level
         Self::process_stmts(stmts);
@@ -138,14 +141,16 @@ impl VisitMut for DesequenceVisitor {
 
     fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
         // First visit children
-        items.iter_mut().for_each(|item| item.visit_mut_with(self));
+        for item in items.iter_mut() {
+            item.visit_mut_with(self);
+        }
 
         // Convert to statements, process, then convert back
         let mut stmts: Vec<Stmt> = items
             .iter()
             .filter_map(|item| match item {
                 ModuleItem::Stmt(stmt) => Some(stmt.clone()),
-                _ => None,
+                ModuleItem::ModuleDecl(_) => None,
             })
             .collect();
 
@@ -170,7 +175,7 @@ impl VisitMut for DesequenceVisitor {
                         }
                     }
                 }
-                _ => new_items.push(item.clone()),
+                ModuleItem::ModuleDecl(_) => new_items.push(item.clone()),
             }
         }
 

@@ -9,6 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use swc_common::Span;
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
@@ -67,7 +68,7 @@ struct SimplifyVisitor;
 impl SimplifyVisitor {
     /// Check if a binary operator is a math operator
     #[must_use]
-    const fn is_math_operator(op: &BinaryOp) -> bool {
+    const fn is_math_operator(op: BinaryOp) -> bool {
         matches!(
             op,
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
@@ -76,7 +77,7 @@ impl SimplifyVisitor {
 
     /// Check if a binary operator is a comparison operator
     #[must_use]
-    const fn is_comparison_operator(op: &BinaryOp) -> bool {
+    const fn is_comparison_operator(op: BinaryOp) -> bool {
         matches!(
             op,
             BinaryOp::EqEq
@@ -92,7 +93,7 @@ impl SimplifyVisitor {
 
     /// Evaluate a binary math operation
     #[must_use]
-    const fn eval_math(left: f64, op: &BinaryOp, right: f64) -> Option<f64> {
+    const fn eval_math(left: f64, op: BinaryOp, right: f64) -> Option<f64> {
         let result = match op {
             BinaryOp::Add => left + right,
             BinaryOp::Sub => left - right,
@@ -115,8 +116,12 @@ impl SimplifyVisitor {
 
     /// Evaluate a comparison operation on numbers
     #[must_use]
-    const fn eval_comparison_num(left: f64, op: &BinaryOp, right: f64) -> Option<bool> {
-        Some(match op {
+    const fn eval_comparison_num(left: f64, op: BinaryOp, right: f64) -> Option<bool> {
+        #[expect(
+            clippy::float_cmp,
+            reason = "JS uses IEEE-754 exact comparisons for numeric operators"
+        )]
+        let result = match op {
             BinaryOp::EqEq | BinaryOp::EqEqEq => left == right,
             BinaryOp::NotEq | BinaryOp::NotEqEq => left != right,
             BinaryOp::Gt => left > right,
@@ -124,12 +129,13 @@ impl SimplifyVisitor {
             BinaryOp::GtEq => left >= right,
             BinaryOp::LtEq => left <= right,
             _ => return None,
-        })
+        };
+        Some(result)
     }
 
     /// Evaluate a comparison operation on strings
     #[must_use]
-    fn eval_comparison_str(left: &str, op: &BinaryOp, right: &str) -> Option<bool> {
+    fn eval_comparison_str(left: &str, op: BinaryOp, right: &str) -> Option<bool> {
         Some(match op {
             BinaryOp::EqEq | BinaryOp::EqEqEq => left == right,
             BinaryOp::NotEq | BinaryOp::NotEqEq => left != right,
@@ -184,17 +190,17 @@ impl SimplifyVisitor {
     fn create_number_lit(value: f64) -> Expr {
         if value < 0.0 {
             Expr::Unary(UnaryExpr {
-                span: Default::default(),
+                span: Span::default(),
                 op: UnaryOp::Minus,
                 arg: Box::new(Expr::Lit(Lit::Num(Number {
-                    span: Default::default(),
+                    span: Span::default(),
                     value: -value,
                     raw: None,
                 }))),
             })
         } else {
             Expr::Lit(Lit::Num(Number {
-                span: Default::default(),
+                span: Span::default(),
                 value,
                 raw: None,
             }))
@@ -205,7 +211,7 @@ impl SimplifyVisitor {
     #[must_use]
     fn create_bool_lit(value: bool) -> Expr {
         Expr::Lit(Lit::Bool(Bool {
-            span: Default::default(),
+            span: Span::default(),
             value,
         }))
     }
@@ -214,7 +220,7 @@ impl SimplifyVisitor {
     #[must_use]
     fn create_string_lit(value: String) -> Expr {
         Expr::Lit(Lit::Str(Str {
-            span: Default::default(),
+            span: Span::default(),
             value: value.into(),
             raw: None,
         }))
@@ -269,9 +275,10 @@ impl SimplifyVisitor {
 
         let mut value = 0.0;
         let mut any = false;
+        let radix_u32 = radix as u32;
         for ch in rest.chars() {
             let digit = match ch.to_digit(36) {
-                Some(d) if (d as i32) < radix => d as f64,
+                Some(d) if d < radix_u32 => d as f64,
                 _ => break,
             };
             any = true;
@@ -340,12 +347,12 @@ impl VisitMut for SimplifyVisitor {
             // Simplify binary expressions
             Expr::Bin(bin) => {
                 // Math operations on numbers
-                if Self::is_math_operator(&bin.op)
+                if Self::is_math_operator(bin.op)
                     && let (Some(left), Some(right)) = (
                         Self::get_expr_numeric_value(&bin.left),
                         Self::get_expr_numeric_value(&bin.right),
                     )
-                    && let Some(result) = Self::eval_math(left, &bin.op, right)
+                    && let Some(result) = Self::eval_math(left, bin.op, right)
                 {
                     *expr = Self::create_number_lit(result);
                     return;
@@ -364,12 +371,12 @@ impl VisitMut for SimplifyVisitor {
                 }
 
                 // Comparison operations
-                if Self::is_comparison_operator(&bin.op) {
+                if Self::is_comparison_operator(bin.op) {
                     // Numeric comparison
                     if let (Some(left), Some(right)) = (
                         Self::get_expr_numeric_value(&bin.left),
                         Self::get_expr_numeric_value(&bin.right),
-                    ) && let Some(result) = Self::eval_comparison_num(left, &bin.op, right)
+                    ) && let Some(result) = Self::eval_comparison_num(left, bin.op, right)
                     {
                         *expr = Self::create_bool_lit(result);
                         return;
@@ -381,7 +388,7 @@ impl VisitMut for SimplifyVisitor {
                             Self::get_string_value(left_lit),
                             Self::get_string_value(right_lit),
                         )
-                        && let Some(result) = Self::eval_comparison_str(&left, &bin.op, &right)
+                        && let Some(result) = Self::eval_comparison_str(&left, bin.op, &right)
                     {
                         *expr = Self::create_bool_lit(result);
                         return;
@@ -389,7 +396,7 @@ impl VisitMut for SimplifyVisitor {
                 }
 
                 // typeof simplification: typeof undefined === "undefined" -> true
-                if Self::is_comparison_operator(&bin.op) {
+                if Self::is_comparison_operator(bin.op) {
                     // Check for typeof x === "type" or "type" === typeof x
                     let (typeof_expr, type_str) = match (&*bin.left, &*bin.right) {
                         (
@@ -399,8 +406,8 @@ impl VisitMut for SimplifyVisitor {
                                 ..
                             }),
                             Expr::Lit(Lit::Str(s)),
-                        ) => (Some(arg), s.value.as_str()),
-                        (
+                        )
+                        | (
                             Expr::Lit(Lit::Str(s)),
                             Expr::Unary(UnaryExpr {
                                 op: UnaryOp::TypeOf,
@@ -436,6 +443,10 @@ impl VisitMut for SimplifyVisitor {
                         match &*unary.arg {
                             // !0 -> true, !1 -> false
                             Expr::Lit(Lit::Num(n)) => {
+                                #[expect(
+                                    clippy::float_cmp,
+                                    reason = "JS unary ! comparisons use exact numeric literals"
+                                )]
                                 if n.value == 0.0 {
                                     *expr = Self::create_bool_lit(true);
                                 } else if n.value == 1.0 {
@@ -512,11 +523,11 @@ impl VisitMut for SimplifyVisitor {
                     let cons = std::mem::replace(
                         &mut *if_stmt.cons,
                         Stmt::Empty(EmptyStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                         }),
                     );
                     *if_stmt.cons = Stmt::Block(BlockStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                         stmts: vec![cons],
                         ..Default::default()
                     });
@@ -529,11 +540,11 @@ impl VisitMut for SimplifyVisitor {
                     let alt_stmt = std::mem::replace(
                         &mut **alt,
                         Stmt::Empty(EmptyStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                         }),
                     );
                     **alt = Stmt::Block(BlockStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                         stmts: vec![alt_stmt],
                         ..Default::default()
                     });
@@ -545,11 +556,11 @@ impl VisitMut for SimplifyVisitor {
                     let body = std::mem::replace(
                         &mut *for_stmt.body,
                         Stmt::Empty(EmptyStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                         }),
                     );
                     *for_stmt.body = Stmt::Block(BlockStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                         stmts: vec![body],
                         ..Default::default()
                     });
@@ -561,11 +572,11 @@ impl VisitMut for SimplifyVisitor {
                     let body = std::mem::replace(
                         &mut *while_stmt.body,
                         Stmt::Empty(EmptyStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                         }),
                     );
                     *while_stmt.body = Stmt::Block(BlockStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                         stmts: vec![body],
                         ..Default::default()
                     });
@@ -589,10 +600,10 @@ impl VisitMut for FixupVisitor {
             && n.value < 0.0
         {
             *expr = Expr::Unary(UnaryExpr {
-                span: Default::default(),
+                span: Span::default(),
                 op: UnaryOp::Minus,
                 arg: Box::new(Expr::Lit(Lit::Num(Number {
-                    span: Default::default(),
+                    span: Span::default(),
                     value: n.value.abs(),
                     raw: None,
                 }))),
@@ -640,17 +651,17 @@ impl VisitMut for LogicalExpressionVisitor {
                     .iter()
                     .map(|e| {
                         Stmt::Expr(ExprStmt {
-                            span: Default::default(),
+                            span: Span::default(),
                             expr: e.clone(),
                         })
                     })
                     .collect();
 
                 *stmt = Stmt::If(IfStmt {
-                    span: Default::default(),
+                    span: Span::default(),
                     test: bin.left.clone(),
                     cons: Box::new(Stmt::Block(BlockStmt {
-                        span: Default::default(),
+                        span: Span::default(),
                         stmts,
                         ..Default::default()
                     })),
@@ -1137,40 +1148,40 @@ mod tests {
     #[test]
     fn test_eval_math() {
         assert_eq!(
-            SimplifyVisitor::eval_math(1.0, &BinaryOp::Add, 2.0),
+            SimplifyVisitor::eval_math(1.0, BinaryOp::Add, 2.0),
             Some(3.0)
         );
         assert_eq!(
-            SimplifyVisitor::eval_math(5.0, &BinaryOp::Sub, 3.0),
+            SimplifyVisitor::eval_math(5.0, BinaryOp::Sub, 3.0),
             Some(2.0)
         );
         assert_eq!(
-            SimplifyVisitor::eval_math(2.0, &BinaryOp::Mul, 3.0),
+            SimplifyVisitor::eval_math(2.0, BinaryOp::Mul, 3.0),
             Some(6.0)
         );
         assert_eq!(
-            SimplifyVisitor::eval_math(6.0, &BinaryOp::Div, 2.0),
+            SimplifyVisitor::eval_math(6.0, BinaryOp::Div, 2.0),
             Some(3.0)
         );
-        assert_eq!(SimplifyVisitor::eval_math(1.0, &BinaryOp::Div, 0.0), None);
+        assert_eq!(SimplifyVisitor::eval_math(1.0, BinaryOp::Div, 0.0), None);
     }
 
     #[test]
     fn test_eval_comparison() {
         assert_eq!(
-            SimplifyVisitor::eval_comparison_num(1.0, &BinaryOp::EqEq, 1.0),
+            SimplifyVisitor::eval_comparison_num(1.0, BinaryOp::EqEq, 1.0),
             Some(true)
         );
         assert_eq!(
-            SimplifyVisitor::eval_comparison_num(1.0, &BinaryOp::EqEq, 2.0),
+            SimplifyVisitor::eval_comparison_num(1.0, BinaryOp::EqEq, 2.0),
             Some(false)
         );
         assert_eq!(
-            SimplifyVisitor::eval_comparison_num(1.0, &BinaryOp::Lt, 2.0),
+            SimplifyVisitor::eval_comparison_num(1.0, BinaryOp::Lt, 2.0),
             Some(true)
         );
         assert_eq!(
-            SimplifyVisitor::eval_comparison_num(2.0, &BinaryOp::Gt, 1.0),
+            SimplifyVisitor::eval_comparison_num(2.0, BinaryOp::Gt, 1.0),
             Some(true)
         );
     }

@@ -74,11 +74,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 wasm-bindgen = { version = "0.2", optional = true }
 
 [lints.rust]
+absolute_paths_not_starting_with_crate = "deny"
 missing_debug_implementations = "warn"
 unfulfilled_lint_expectations = "deny"
 
 [lints.clippy]
+#restriction = { level = "warn", priority = -1 }
 allow_attributes = "deny" # Use expect(lint) instead
+blanket_clippy_restriction_lints = "allow"
 dbg_macro = "deny"
 exhaustive_enums = "warn"
 print_stdout = "deny"

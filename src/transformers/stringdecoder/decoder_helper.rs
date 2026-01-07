@@ -206,7 +206,7 @@ impl InlineBase91Finder {
                     false
                 }
             }
-            _ => false,
+            MemberProp::PrivateName(_) => false,
         };
 
         if !prop_is_index_of {

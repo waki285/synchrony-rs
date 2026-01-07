@@ -600,7 +600,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                             false
                         }
                     }
-                    _ => false,
+                    MemberProp::PrivateName(_) => false,
                 };
                 prop_match || Self::expr_contains_member_prop(&member.obj, prop_name)
             }
@@ -675,7 +675,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                         }),
                     _ => false,
                 },
-                _ => false,
+                PropOrSpread::Spread(_) => false,
             }),
             _ => false,
         }
@@ -791,7 +791,6 @@ impl<'a> DecoderFunctionFinder<'a> {
                         AssignTarget::Simple(SimpleAssignTarget::Member(member)) => {
                             Self::expr_contains_bitxor(&member.obj)
                         }
-                        AssignTarget::Simple(SimpleAssignTarget::Ident(_)) => false,
                         _ => false,
                     }
             }
@@ -819,7 +818,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                         .is_some_and(|body| body.stmts.iter().any(Self::stmt_contains_bitxor)),
                     _ => false,
                 },
-                _ => false,
+                PropOrSpread::Spread(_) => false,
             }),
             _ => false,
         }
@@ -996,7 +995,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                         }),
                     _ => false,
                 },
-                _ => false,
+                PropOrSpread::Spread(_) => false,
             }),
             _ => false,
         }

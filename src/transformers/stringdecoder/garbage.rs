@@ -128,9 +128,9 @@ impl<'a> UnusedObfuscatedRemover<'a> {
 
 impl VisitMut for UnusedObfuscatedRemover<'_> {
     fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
-        items
-            .iter_mut()
-            .for_each(|item| item.visit_mut_children_with(self));
+        for item in items.iter_mut() {
+            item.visit_mut_children_with(self);
+        }
 
         items.retain(|item| match item {
             ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fn_decl))) => {
@@ -148,9 +148,9 @@ impl VisitMut for UnusedObfuscatedRemover<'_> {
     }
 
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
-        stmts
-            .iter_mut()
-            .for_each(|stmt| stmt.visit_mut_children_with(self));
+        for stmt in stmts.iter_mut() {
+            stmt.visit_mut_children_with(self);
+        }
 
         stmts.retain(|stmt| match stmt {
             Stmt::Decl(Decl::Fn(fn_decl)) => {
@@ -192,9 +192,7 @@ impl VisitMut for UnusedObfuscatedRemover<'_> {
 #[must_use]
 fn is_pure_expr(expr: &Expr) -> bool {
     match expr {
-        Expr::Ident(_) => true,
-        Expr::Lit(_) => true,
-        Expr::Fn(_) | Expr::Arrow(_) => true,
+        Expr::Ident(_) | Expr::Lit(_) | Expr::Fn(_) | Expr::Arrow(_) => true,
         Expr::Paren(paren) => is_pure_expr(&paren.expr),
         Expr::Unary(unary) => {
             matches!(
@@ -213,7 +211,7 @@ fn is_pure_expr(expr: &Expr) -> bool {
                 Prop::Method(_) | Prop::Getter(_) | Prop::Setter(_) => true,
                 _ => false,
             },
-            _ => false,
+            PropOrSpread::Spread(_) => false,
         }),
         _ => false,
     }
@@ -266,9 +264,9 @@ impl Visit for ExternalUsageFinder<'_> {
 
 impl VisitMut for ObfuscationGarbageRemover<'_> {
     fn visit_mut_module_items(&mut self, items: &mut Vec<ModuleItem>) {
-        items
-            .iter_mut()
-            .for_each(|item| item.visit_mut_children_with(self));
+        for item in items.iter_mut() {
+            item.visit_mut_children_with(self);
+        }
 
         items.retain(|item| match item {
             ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fn_decl))) => {
@@ -281,9 +279,9 @@ impl VisitMut for ObfuscationGarbageRemover<'_> {
     }
 
     fn visit_mut_stmts(&mut self, stmts: &mut Vec<Stmt>) {
-        stmts
-            .iter_mut()
-            .for_each(|stmt| stmt.visit_mut_children_with(self));
+        for stmt in stmts.iter_mut() {
+            stmt.visit_mut_children_with(self);
+        }
 
         stmts.retain(|stmt| match stmt {
             Stmt::Decl(Decl::Fn(fn_decl)) => !self.should_remove_ident(&fn_decl.ident),

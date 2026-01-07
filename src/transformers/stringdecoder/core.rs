@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use swc_common::GLOBALS;
+use swc_common::{Globals, GLOBALS};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMutWith, VisitWith};
 
@@ -82,7 +82,12 @@ pub(super) fn eval_const_i64(expr: &Expr) -> Option<i64> {
                 BinaryOp::RShift => Some(left >> (right as u32)),
                 BinaryOp::ZeroFillRShift => {
                     let l = left as u64;
-                    Some((l >> (right as u32)) as i64)
+                    #[expect(
+                        clippy::cast_possible_wrap,
+                        reason = "JS >>> uses unsigned 32-bit semantics; wrap is intentional"
+                    )]
+                    let shifted = (l >> (right as u32)) as i64;
+                    Some(shifted)
                 }
                 _ => None,
             }
@@ -158,16 +163,18 @@ impl StringDecoder {
 
     /// Base91 decode with custom charset to bytes
     #[must_use]
-    fn base91_decode_bytes(charset: &str, input: &str) -> Option<Vec<u8>> {
+    fn base91_decode_bytes(charset: &str, input: &str) -> Vec<u8> {
         let mut output = Vec::new();
         let mut buffer = 0u32;
         let mut bits_collected = 0u32;
         let mut value = -1i32;
 
         for ch in input.chars() {
-            let idx = match charset.find(ch) {
-                Some(v) => v as i32,
-                None => continue,
+            let Some(idx) = charset
+                .find(ch)
+                .and_then(|v| i32::try_from(v).ok())
+            else {
+                continue;
             };
 
             if value < 0 {
@@ -190,13 +197,17 @@ impl StringDecoder {
             output.push(((buffer | ((value as u32) << bits_collected)) & 0xFF) as u8);
         }
 
-        Some(output)
+        output
     }
 
     /// Base91 decode with custom charset
     #[must_use]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "kept as Option for consistency with other decoder helpers"
+    )]
     pub(super) fn base91_decode(charset: &str, input: &str) -> Option<String> {
-        let output = Self::base91_decode_bytes(charset, input)?;
+        let output = Self::base91_decode_bytes(charset, input);
 
         match String::from_utf8(output) {
             Ok(s) => Some(s),
@@ -417,12 +428,12 @@ impl Transformer for StringDecoder {
             }
 
             if !candidates.is_empty() {
-                let mut scope_data = GLOBALS.set(&Default::default(), || analyze(&context.ast));
+                let mut scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
                 if !scope_data.top.has_with_stmt && !scope_data.top.has_eval_call {
                     let mut alias_cleaner = ObfuscationAliasCleaner::new(&scope_data, &candidates);
                     context.ast.visit_mut_with(&mut alias_cleaner);
 
-                    scope_data = GLOBALS.set(&Default::default(), || analyze(&context.ast));
+                    scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
 
                     for _ in 0..4 {
                         let mut remover = UnusedObfuscatedRemover::new(&scope_data);
@@ -430,7 +441,7 @@ impl Transformer for StringDecoder {
                         if !remover.changed {
                             break;
                         }
-                        scope_data = GLOBALS.set(&Default::default(), || analyze(&context.ast));
+                        scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
                     }
 
                     let mut candidate_functions: HashSet<String> = context
