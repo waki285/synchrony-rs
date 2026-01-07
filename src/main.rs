@@ -3,6 +3,7 @@
 //! A fast JavaScript deobfuscator written in Rust.
 
 #![cfg(feature = "cli")]
+#![expect(clippy::exit, reason = "CLI tool should exit on fatal errors")]
 #![expect(clippy::print_stderr, reason = "CLI tool should print output to stderr")]
 #![expect(clippy::print_stdout, reason = "CLI tool should print output to stdout")]
 
