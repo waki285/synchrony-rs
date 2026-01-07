@@ -1,6 +1,6 @@
 [package]
 name = "synchrony-rs"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 authors = ["waki285 <suzuneu@suzuneu.com>", "relative <hi@relative.im>"]
 description = "A fast JavaScript deobfuscator written in Rust"
@@ -79,6 +79,7 @@ missing_debug_implementations = "warn"
 unfulfilled_lint_expectations = "deny"
 
 [lints.clippy]
+# restriction
 restriction = { level = "warn", priority = -1 }
 allow_attributes = "deny" # Use expect(lint) instead
 arbitrary_source_item_ordering = "allow"
