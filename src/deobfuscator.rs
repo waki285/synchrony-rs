@@ -289,7 +289,16 @@ impl Deobfuscator {
         let options = self.build_options(options);
         let is_module = matches!(program, Program::Module(_));
 
-        let transformer_list = self.build_transformers(&options, transformers)?;
+        let transformer_list = {
+            #[cfg(feature = "cli")]
+            {
+                self.build_transformers(&options, transformers)?
+            }
+            #[cfg(not(feature = "cli"))]
+            {
+                self.build_transformers(&options, transformers)
+            }
+        };
 
         let source_hash_value = source.as_ref().map(|src| source_hash(src));
         let mut context = Context::new(program, transformer_list, is_module, source);
@@ -340,6 +349,7 @@ impl Deobfuscator {
         Ok(())
     }
 
+    #[cfg(feature = "cli")]
     fn build_transformers(
         &self,
         options: &DeobfuscateOptions,
@@ -367,6 +377,27 @@ impl Deobfuscator {
         }
 
         Ok(transformers::default_transformers())
+    }
+
+    #[cfg(not(feature = "cli"))]
+    fn build_transformers(
+        &self,
+        options: &DeobfuscateOptions,
+        transformers: Option<Vec<TransformerBox>>,
+    ) -> Vec<TransformerBox> {
+        if let Some(transformers) = transformers {
+            return transformers;
+        }
+
+        if let Some(custom) = &options.custom_transformers {
+            if custom.is_empty() {
+                return transformers::default_transformers();
+            }
+
+            return custom.clone();
+        }
+
+        transformers::default_transformers()
     }
 
     /// Deobfuscate JavaScript source code

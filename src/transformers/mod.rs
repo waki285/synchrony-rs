@@ -117,7 +117,7 @@ fn transformer_options_empty(options: &TransformerOptions) -> bool {
 }
 
 #[cfg(not(feature = "cli"))]
-fn transformer_options_empty(_options: &TransformerOptions) -> bool {
+const fn transformer_options_empty(_options: &TransformerOptions) -> bool {
     true
 }
 

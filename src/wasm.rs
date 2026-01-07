@@ -29,7 +29,7 @@ fn build_options(options: Option<WasmOptions>) -> Result<DeobfuscateOptions, JsV
             out.rename = rename;
         }
         if let Some(source_type) = opts.source_type {
-            out.source_type = parse_source_type_str(&source_type).map_err(|e| js_error(e))?;
+            out.source_type = parse_source_type_str(&source_type).map_err(js_error)?;
         }
         if let Some(ecma_version) = opts.ecma_version {
             out.ecma_version = Some(parse_es_version_str(&ecma_version).map_err(js_error)?);
@@ -42,6 +42,10 @@ fn build_options(options: Option<WasmOptions>) -> Result<DeobfuscateOptions, JsV
 ///
 /// `options` accepts `{ rename?: boolean, sourceType?: "script"|"module"|"both",
 /// ecmaVersion?: string, format?: boolean }`.
+///
+/// # Errors
+///
+/// Returns a JS error if option parsing or deobfuscation fails.
 #[wasm_bindgen]
 pub fn deobfuscate(source: &str, options: JsValue) -> Result<String, JsValue> {
     let opts: Option<WasmOptions> = if options.is_null() || options.is_undefined() {
@@ -77,6 +81,10 @@ pub fn deobfuscate(source: &str, options: JsValue) -> Result<String, JsValue> {
 /// Set the log level for Rust-side logs forwarded to JS.
 ///
 /// Accepted values: "off", "error", "warn", "info", "debug".
+///
+/// # Errors
+///
+/// Returns a JS error if the level is invalid.
 #[wasm_bindgen]
 pub fn set_log_level(level: &str) -> Result<(), JsValue> {
     wasm_logger::set_log_level(level)
@@ -85,6 +93,10 @@ pub fn set_log_level(level: &str) -> Result<(), JsValue> {
 /// Set a JS callback to receive Rust-side logs.
 ///
 /// The callback signature is: `(level: string, message: string) => void`.
+///
+/// # Errors
+///
+/// Returns a JS error if the callback value is not a function.
 #[wasm_bindgen]
 pub fn set_log_sink(callback: JsValue) -> Result<(), JsValue> {
     wasm_logger::set_log_sink_from_value(callback)

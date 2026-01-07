@@ -75,7 +75,9 @@ macro_rules! log_info {
 
 #[cfg(all(not(feature = "wasm"), not(feature = "tracing")))]
 macro_rules! log_info {
-    ($($arg:tt)*) => { let _ = || { let _ = ::std::format_args!($($arg)*); }; };
+    ($($arg:tt)*) => {{
+        let _: ::std::fmt::Arguments<'_> = ::std::format_args!($($arg)*);
+    }};
 }
 
 #[cfg(feature = "wasm")]
@@ -95,7 +97,9 @@ macro_rules! log_debug {
 
 #[cfg(all(not(feature = "wasm"), not(feature = "tracing")))]
 macro_rules! log_debug {
-    ($($arg:tt)*) => { let _ = || { let _ = ::std::format_args!($($arg)*); }; };
+    ($($arg:tt)*) => {{
+        let _: ::std::fmt::Arguments<'_> = ::std::format_args!($($arg)*);
+    }};
 }
 
 pub(crate) use log_debug;

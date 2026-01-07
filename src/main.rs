@@ -13,11 +13,13 @@
     reason = "CLI tool should print output to stdout"
 )]
 
+#[cfg(feature = "tracing")]
+use std::env;
 use std::error::Error;
 use std::fs;
 use std::io::{self, IsTerminal as _, Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::{env, process};
+use std::process;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
