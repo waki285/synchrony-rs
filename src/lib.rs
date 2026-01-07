@@ -37,8 +37,6 @@
 //! ## CLI
 //! Build the CLI with default features and run `synchrony --help` for usage.
 
-extern crate alloc;
-
 pub mod context;
 pub mod deobfuscator;
 pub mod error;
@@ -77,7 +75,7 @@ macro_rules! log_info {
 
 #[cfg(all(not(feature = "wasm"), not(feature = "tracing")))]
 macro_rules! log_info {
-    ($($arg:tt)*) => { let _ = || { let _ = ::core::format_args!($($arg)*); }; };
+    ($($arg:tt)*) => { let _ = || { let _ = ::std::format_args!($($arg)*); }; };
 }
 
 #[cfg(feature = "wasm")]
@@ -97,7 +95,7 @@ macro_rules! log_debug {
 
 #[cfg(all(not(feature = "wasm"), not(feature = "tracing")))]
 macro_rules! log_debug {
-    ($($arg:tt)*) => { let _ = || { let _ = ::core::format_args!($($arg)*); }; };
+    ($($arg:tt)*) => { let _ = || { let _ = ::std::format_args!($($arg)*); }; };
 }
 
 pub(crate) use log_debug;

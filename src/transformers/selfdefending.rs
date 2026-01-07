@@ -698,7 +698,7 @@ impl Visit for SelfDefendingScan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::sync::Arc;
+    use std::sync::Arc;
 
     use crate::deobfuscator::{DeobfuscateOptions, Deobfuscator};
 

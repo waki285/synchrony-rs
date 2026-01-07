@@ -7,8 +7,8 @@
 //! - Simplifying comparison expressions
 //! - Converting single statements to blocks
 
-use core::mem;
 use std::collections::{HashMap, HashSet};
+use std::mem;
 
 use swc_common::Span;
 use swc_ecma_ast::*;
@@ -1186,7 +1186,7 @@ mod tests {
     use super::*;
     use crate::Deobfuscator;
     use crate::deobfuscator::DeobfuscateOptions;
-    use alloc::sync::Arc;
+    use std::sync::Arc;
 
     fn deob_with_simplify(code: &str) -> String {
         let deob = Deobfuscator::new();
@@ -1312,7 +1312,7 @@ function h(x){ return x; }
     #[test]
     fn fix_proxies_respects_shadowing_in_nested_functions() {
         use crate::{DeobfuscateOptions, Deobfuscator};
-        use alloc::sync::Arc;
+        use std::sync::Arc;
 
         let deob = Deobfuscator::new();
         let code = r"

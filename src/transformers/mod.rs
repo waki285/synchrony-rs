@@ -36,7 +36,7 @@ pub use selfdefending::SelfDefending;
 pub use simplify::Simplify;
 pub use stringdecoder::StringDecoder;
 
-use alloc::sync::Arc;
+use std::sync::Arc;
 
 use crate::context::Context;
 use crate::error::{DeobfuscateError, Result};

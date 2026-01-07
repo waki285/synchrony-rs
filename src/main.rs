@@ -15,8 +15,8 @@
 
 extern crate alloc;
 
-use alloc::boxed::Box;
-use core::error::Error;
+use std::boxed::Box;
+use std::error::Error;
 use std::fs;
 use std::io::{self, IsTerminal as _, Read as _, Write as _};
 use std::path::{Path, PathBuf};

@@ -392,7 +392,7 @@ mod tests {
     use super::*;
     use crate::Deobfuscator;
     use crate::deobfuscator::DeobfuscateOptions;
-    use alloc::sync::Arc;
+    use std::sync::Arc;
 
     fn deob_with_calculator(code: &str) -> String {
         let deob = Deobfuscator::new();

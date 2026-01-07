@@ -6,7 +6,7 @@ use crate::Deobfuscator;
 use crate::context::{StringArray, StringArrayType};
 use crate::deobfuscator::DeobfuscateOptions;
 use crate::transformers::Transformer as _;
-use alloc::sync::Arc;
+use std::sync::Arc;
 use swc_common::GLOBALS;
 use swc_ecma_ast::{Expr, Program};
 

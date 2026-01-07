@@ -3,8 +3,8 @@
 //! This module provides the main `Deobfuscator` struct that orchestrates
 //! the deobfuscation process.
 
-use alloc::sync::Arc;
-use core::fmt;
+use std::fmt;
+use std::sync::Arc;
 
 use swc_common::{
     FileName, GLOBALS, Globals, SourceMap, SourceMapper,
@@ -406,7 +406,7 @@ impl Deobfuscator {
 mod tests {
     use super::*;
     use crate::transformers::Simplify;
-    use alloc::sync::Arc;
+    use std::sync::Arc;
 
     fn run_with_simplify(code: &str) -> String {
         let deob = Deobfuscator::new();

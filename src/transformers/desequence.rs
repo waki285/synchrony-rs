@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn desequence_var_decl_split() {
         use crate::{DeobfuscateOptions, Deobfuscator};
-        use alloc::sync::Arc;
+        use std::sync::Arc;
 
         let deob = Deobfuscator::new();
         let code = "const a = 1, b = 2;";
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn desequence_return_sequence() {
         use crate::{DeobfuscateOptions, Deobfuscator};
-        use alloc::sync::Arc;
+        use std::sync::Arc;
 
         let deob = Deobfuscator::new();
         let code = "function f(){ return (a = 1, b = 2); }";

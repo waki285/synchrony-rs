@@ -4,8 +4,8 @@
 //! It stores the AST and the metadata collected by earlier passes (string
 //! arrays, decoder functions, control-flow storage, etc.).
 
-use core::fmt;
 use std::collections::HashMap;
+use std::fmt;
 
 use swc_ecma_ast::{Function, Lit, Program};
 

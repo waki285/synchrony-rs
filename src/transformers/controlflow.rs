@@ -5,8 +5,8 @@
 //! - Finding and resolving control flow storage objects
 //! - Deflattening switch-based control flow
 
-use core::mem;
 use std::collections::HashMap;
+use std::mem;
 
 use swc_common::{Span, SyntaxContext};
 use swc_ecma_ast::*;
@@ -838,7 +838,7 @@ mod tests {
     use crate::Deobfuscator;
     use crate::deobfuscator::DeobfuscateOptions;
     use crate::transformers::Simplify;
-    use alloc::sync::Arc;
+    use std::sync::Arc;
 
     fn deob_with_controlflow(code: &str) -> String {
         let deob = Deobfuscator::new();

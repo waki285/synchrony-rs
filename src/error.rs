@@ -1,6 +1,6 @@
 //! Error types for the deobfuscator.
 
-use core::result::Result as CoreResult;
+use std::result::Result as CoreResult;
 use thiserror::Error;
 
 /// Errors returned by the deobfuscator APIs.

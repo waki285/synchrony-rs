@@ -397,7 +397,7 @@ fn is_member_obj_prop(member: &MemberExpr, obj_name: &str, prop_name: &str) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::sync::Arc;
+    use std::sync::Arc;
 
     use crate::{DeobfuscateOptions, Deobfuscator};
 

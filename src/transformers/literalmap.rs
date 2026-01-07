@@ -426,7 +426,7 @@ mod tests {
     use super::*;
     use crate::Deobfuscator;
     use crate::deobfuscator::DeobfuscateOptions;
-    use alloc::sync::Arc;
+    use std::sync::Arc;
 
     #[test]
     fn literal_value_to_expr() {
