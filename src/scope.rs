@@ -253,6 +253,10 @@ impl Storage for ScopeData {
 
     fn merge(&mut self, kind: ScopeKind, child: Self) {
         // Merge child scope data into this
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "merge order is intentionally irrelevant"
+        )]
         for (id, var) in child.vars {
             let existing = self.vars.entry(id).or_default();
             existing.ref_count += var.ref_count;
@@ -348,30 +352,30 @@ mod tests {
     use super::*;
 
     fn parse_and_analyze(code: &str) -> ScopeData {
-        use std::sync::Arc;
-        use swc_common::{GLOBALS, SourceMap};
-        use swc_ecma_parser::{Syntax, parse_file_as_module};
+        use swc_common::{GLOBALS, Globals, SourceMap, sync::Lrc};
+        use swc_ecma_ast::EsVersion;
+        use swc_ecma_parser::{EsSyntax, Syntax, parse_file_as_module};
 
-        let cm = Arc::new(SourceMap::default());
+        let cm: Lrc<SourceMap> = Lrc::default();
         let fm = cm.new_source_file(
-            swc_common::FileName::Custom("test.js".to_string()).into(),
-            code.to_string(),
+            swc_common::FileName::Custom("test.js".to_owned()).into(),
+            code.to_owned(),
         );
 
         let module = parse_file_as_module(
             &fm,
-            Syntax::Es(Default::default()),
-            Default::default(),
+            Syntax::Es(EsSyntax::default()),
+            EsVersion::default(),
             None,
             &mut vec![],
         )
         .unwrap();
 
-        GLOBALS.set(&Default::default(), || analyze(&module))
+        GLOBALS.set(&Globals::default(), || analyze(&module))
     }
 
     #[test]
-    fn test_simple_var_usage() {
+    fn simple_var_usage() {
         let data = parse_and_analyze("var x = 1; console.log(x);");
 
         // Find the 'x' variable
@@ -387,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unused_var() {
+    fn unused_var() {
         let data = parse_and_analyze("var unused = 1;");
 
         let unused_var = data.vars.iter().find(|(id, _)| id.0.as_str() == "unused");
@@ -398,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn test_function_param() {
+    fn function_param() {
         let data = parse_and_analyze("function foo(a, b) { return a + b; }");
 
         let a_var = data.vars.iter().find(|(id, _)| id.0.as_str() == "a");

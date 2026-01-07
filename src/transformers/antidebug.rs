@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use swc_common::{Span, SyntaxContext};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
+use swc_ecma_visit::{Visit, VisitMut, VisitMutWith as _, VisitWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
@@ -229,6 +229,8 @@ struct AntiDebugScan {
 }
 
 impl AntiDebugScan {
+    const THRESHOLD: f64 = 1_000.0;
+
     const fn is_match(&self) -> bool {
         self.has_now && self.has_threshold && self.has_scramble_loop && !self.return_with_value
     }
@@ -246,7 +248,7 @@ impl Visit for AntiDebugScan {
         if matches!(expr.op, BinaryOp::Gt | BinaryOp::GtEq) {
             let left_num = extract_number_literal(&expr.left);
             let right_num = extract_number_literal(&expr.right);
-            if left_num >= 1000.0 || right_num >= 1000.0 {
+            if left_num >= Self::THRESHOLD || right_num >= Self::THRESHOLD {
                 self.has_threshold = true;
             }
         }
@@ -335,7 +337,7 @@ fn for_in_scrambles_object(stmt: &ForInStmt) -> bool {
             let Expr::Ident(obj) = &*stmt.right else {
                 return false;
             };
-            (iter.to_string(), obj.sym.to_string())
+            (iter.to_owned(), obj.sym.to_string())
         }
         ForHead::Pat(pat) => {
             let Pat::Ident(ident) = &**pat else {
@@ -395,13 +397,13 @@ fn is_member_obj_prop(member: &MemberExpr, obj_name: &str, prop_name: &str) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     use crate::{DeobfuscateOptions, Deobfuscator};
 
     #[test]
-    fn test_antidebug_noops_time_guard() {
-        let code = r#"
+    fn antidebug_noops_time_guard() {
+        let code = r"
 function guard() {
   let t = Date.now();
   if (t > 5000) {
@@ -411,10 +413,12 @@ function guard() {
   }
 }
 function ok() { return 1; }
-"#;
+";
         let deob = Deobfuscator::new();
-        let mut options = DeobfuscateOptions::default();
-        options.custom_transformers = Some(vec![Arc::new(AntiDebug::new())]);
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![Arc::new(AntiDebug::new())]),
+            ..DeobfuscateOptions::default()
+        };
         let result = deob.deobfuscate_source(code, Some(options)).unwrap();
         assert!(result.contains("function guard()"));
         assert!(!result.contains("Date.now"));

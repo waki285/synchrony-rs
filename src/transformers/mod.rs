@@ -36,10 +36,10 @@ pub use selfdefending::SelfDefending;
 pub use simplify::Simplify;
 pub use stringdecoder::StringDecoder;
 
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use crate::context::Context;
-use crate::error::Result;
+use crate::error::{DeobfuscateError, Result};
 
 /// A shared transformer
 pub type TransformerBox = Arc<dyn Transformer>;
@@ -98,7 +98,7 @@ pub fn create_transformer(name: &str) -> Result<TransformerBox> {
         "jsconfusercontrolflow" | "jsconfuser_controlflow" => {
             Ok(Arc::new(JSConfuserControlFlow::new()))
         }
-        _ => Err(crate::error::DeobfuscateError::InvalidTransformer(format!(
+        _ => Err(DeobfuscateError::InvalidTransformer(format!(
             "Unknown transformer: {name}"
         ))),
     }

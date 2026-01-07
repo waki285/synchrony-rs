@@ -5,9 +5,9 @@
 
 use std::collections::HashSet;
 
-use swc_common::{Globals, GLOBALS, Span, SyntaxContext};
+use swc_common::{GLOBALS, Globals, Span, SyntaxContext};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
+use swc_ecma_visit::{Visit, VisitMut, VisitMutWith as _, VisitWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
@@ -236,7 +236,10 @@ fn extract_call_expr(expr: &Expr) -> Option<&CallExpr> {
     match expr {
         Expr::Call(call) => Some(call),
         Expr::Paren(paren) => extract_call_expr(&paren.expr),
-        Expr::Seq(seq) => seq.exprs.last().and_then(|expr| extract_call_expr(expr)),
+        Expr::Seq(seq) => {
+            let expr = seq.exprs.last()?;
+            extract_call_expr(expr)
+        }
         _ => None,
     }
 }
@@ -463,7 +466,10 @@ impl SelfDefendingScan {
         match expr {
             Expr::Ident(ident) => Some(ident.sym.to_string()),
             Expr::Paren(paren) => Self::expr_ident_name(&paren.expr),
-            Expr::Seq(seq) => seq.exprs.last().and_then(|e| Self::expr_ident_name(e)),
+            Expr::Seq(seq) => {
+                let e = seq.exprs.last()?;
+                Self::expr_ident_name(e)
+            }
             _ => None,
         }
     }
@@ -502,11 +508,7 @@ impl SelfDefendingScan {
             return None;
         };
         let obj_name = Self::expr_ident_name(&member.obj)?;
-        if self.regexp_vars.contains(&obj_name) {
-            Some(obj_name)
-        } else {
-            None
-        }
+        self.regexp_vars.contains(&obj_name).then_some(obj_name)
     }
 
     fn is_negated_regexp_method_call(&self, expr: &Expr) -> Option<String> {
@@ -696,12 +698,12 @@ impl Visit for SelfDefendingScan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     use crate::deobfuscator::{DeobfuscateOptions, Deobfuscator};
 
     #[test]
-    fn test_self_defending_removal() {
+    fn self_defending_removal() {
         let deob = Deobfuscator::new();
         let code = r#"
 const guard = (function() {
@@ -723,7 +725,7 @@ const x = 1;
     }
 
     #[test]
-    fn test_self_defending_new_instance_call_removed() {
+    fn self_defending_new_instance_call_removed() {
         let deob = Deobfuscator::new();
         let code = r#"
 function Guard() {}
@@ -744,7 +746,7 @@ const y = 2;
     }
 
     #[test]
-    fn test_self_defending_recursive_guard_removed() {
+    fn self_defending_recursive_guard_removed() {
         let deob = Deobfuscator::new();
         let code = r#"
 function guard(n) {
@@ -766,7 +768,7 @@ guard(0);
     }
 
     #[test]
-    fn test_self_defending_wrapped_arg_removed() {
+    fn self_defending_wrapped_arg_removed() {
         let deob = Deobfuscator::new();
         let code = r#"
 const wrap = function(_ctx, fn) { return fn; };
@@ -786,7 +788,7 @@ const ok = 1;
     }
 
     #[test]
-    fn test_self_defending_regexp_guard_pattern_removed() {
+    fn self_defending_regexp_guard_pattern_removed() {
         let deob = Deobfuscator::new();
         let code = r#"
 const wrap = function(ctx, fn) {

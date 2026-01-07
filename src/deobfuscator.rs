@@ -3,11 +3,11 @@
 //! This module provides the main `Deobfuscator` struct that orchestrates
 //! the deobfuscation process.
 
-use std::fmt;
-use std::sync::Arc;
+use alloc::sync::Arc;
+use core::fmt;
 
 use swc_common::{
-    FileName, Globals, GLOBALS, SourceMap,
+    FileName, GLOBALS, Globals, SourceMap, SourceMapper,
     errors::{ColorConfig, Handler},
     sync::Lrc,
 };
@@ -17,11 +17,16 @@ use swc_ecma_parser::{EsSyntax, Parser, StringInput, Syntax, lexer::Lexer};
 
 use crate::context::Context;
 use crate::error::{DeobfuscateError, Result};
+#[cfg(feature = "cli")]
+use crate::transformers::TransformerConfig;
 use crate::transformers::{self, TransformerBox};
 
 /// Source type for parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[expect(clippy::exhaustive_enums)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "public API uses a closed enum for stable parsing options"
+)]
 pub enum SourceType {
     /// Parse as ES module
     Module,
@@ -58,7 +63,7 @@ pub struct DeobfuscateOptions {
 
     /// Custom transformers by name + options (TS config shape)
     #[cfg(feature = "cli")]
-    pub custom_transformer_configs: Option<Vec<crate::transformers::TransformerConfig>>,
+    pub custom_transformer_configs: Option<Vec<TransformerConfig>>,
 }
 
 impl fmt::Debug for DeobfuscateOptions {
@@ -77,12 +82,10 @@ impl fmt::Debug for DeobfuscateOptions {
                 &self.custom_transformers.as_ref().map(|list| list.len()),
             );
         #[cfg(feature = "cli")]
-        {
-            ds.field(
-                "custom_transformer_configs",
-                &self.custom_transformer_configs,
-            );
-        }
+        ds.field(
+            "custom_transformer_configs",
+            &self.custom_transformer_configs,
+        );
         ds.finish()
     }
 }
@@ -104,13 +107,10 @@ impl Default for DeobfuscateOptions {
 
 /// Compute a hash of the source code (used for consistent renaming)
 #[must_use]
-const fn source_hash(s: &str) -> u32 {
-    let mut key: u32 = 0x94a3fa21;
-    let bytes = s.as_bytes();
-    let mut length = bytes.len();
-    while length > 0 {
-        length -= 1;
-        key = key.wrapping_mul(33) ^ (bytes[length] as u32);
+fn source_hash(s: &str) -> u32 {
+    let mut key: u32 = 0x94a3_fa21;
+    for &byte in s.as_bytes().iter().rev() {
+        key = key.wrapping_mul(33) ^ u32::from(byte);
     }
     key
 }
@@ -121,7 +121,7 @@ const fn source_hash(s: &str) -> u32 {
 /// ```rust
 /// use synchrony_rs::{DeobfuscateOptions, Deobfuscator};
 /// use synchrony_rs::transformers::Simplify;
-/// use std::sync::Arc;
+/// use alloc::sync::Arc;
 ///
 /// let deob = Deobfuscator::new();
 /// let options = DeobfuscateOptions {
@@ -174,9 +174,10 @@ impl Deobfuscator {
         ecma_version: Option<EsVersion>,
     ) -> Result<(Program, Lrc<SourceMap>, bool)> {
         let cm: Lrc<SourceMap> = Lrc::new(SourceMap::default());
-        let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, Some(cm.clone()));
+        let handler_cm: Lrc<dyn SourceMapper> = Lrc::<SourceMap>::clone(&cm);
+        let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, Some(handler_cm));
 
-        let fm = cm.new_source_file(Lrc::new(FileName::Anon), source.to_string());
+        let fm = cm.new_source_file(Lrc::new(FileName::Anon), source.to_owned());
 
         let syntax = Syntax::Es(EsSyntax {
             jsx: false,
@@ -189,7 +190,7 @@ impl Deobfuscator {
             SourceType::Script => self.parse_as_script(&fm, syntax, &handler, cm, ecma_version),
             SourceType::Both => {
                 // Try module first, then script
-                self.parse_as_module(&fm, syntax, &handler, cm.clone(), ecma_version)
+                self.parse_as_module(&fm, syntax, &handler, Lrc::clone(&cm), ecma_version)
                     .or_else(|_| self.parse_as_script(&fm, syntax, &handler, cm, ecma_version))
             }
         }
@@ -242,7 +243,7 @@ impl Deobfuscator {
         let mut buf = Vec::new();
 
         {
-            let writer = JsWriter::new(cm.clone(), "\n", &mut buf, None);
+            let writer = JsWriter::new(Lrc::clone(&cm), "\n", &mut buf, None);
             let config = CodegenConfig::default()
                 .with_target(version)
                 .with_minify(false);
@@ -257,7 +258,7 @@ impl Deobfuscator {
             emitter
                 .emit_program(program)
                 .map_err(|e| DeobfuscateError::CodegenError(format!("{e:?}")))?;
-        }
+        };
 
         String::from_utf8(buf)
             .map_err(|e| DeobfuscateError::CodegenError(format!("Invalid UTF-8: {e}")))
@@ -331,11 +332,8 @@ impl Deobfuscator {
     }
 
     fn run_transformers(&self, context: &mut Context) -> Result<()> {
-        for i in 0..context.transformers.len() {
-            // We need to temporarily take the transformer out to avoid borrow issues
-            // This is safe because we're iterating by index
-            #[expect(clippy::borrow_as_ptr)]
-            let transformer = unsafe { &*(&context.transformers[i] as *const TransformerBox) };
+        let transformers = context.transformers.clone();
+        for transformer in transformers {
             crate::log_info!("Running {} transformer", transformer.name());
             transformer.transform(context)?;
         }
@@ -397,7 +395,7 @@ impl Deobfuscator {
                 program,
                 Some(options),
                 None,
-                Some(source.to_string()),
+                Some(source.to_owned()),
             )?;
             self.generate(&program, out_cm, ecma_version)
         })
@@ -408,7 +406,7 @@ impl Deobfuscator {
 mod tests {
     use super::*;
     use crate::transformers::Simplify;
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     fn run_with_simplify(code: &str) -> String {
         let deob = Deobfuscator::new();
@@ -420,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn test_source_hash() {
+    fn source_hash_works() {
         let hash = source_hash("hello world");
         assert_ne!(hash, 0);
 
@@ -432,40 +430,40 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_simple() {
+    fn parse_simple() {
         let deob = Deobfuscator::new();
         let result = deob.parse("const x = 1;", SourceType::Script, None);
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
-    fn test_parse_module() {
+    fn parse_module() {
         let deob = Deobfuscator::new();
         let result = deob.parse("export const x = 1;", SourceType::Module, None);
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
-    fn test_deobfuscate_constant_folding() {
+    fn deobfuscate_constant_folding() {
         let result = run_with_simplify("const x = 1 + 2 + 3;");
         assert!(result.contains("const x = 6"));
     }
 
     #[test]
-    fn test_deobfuscate_boolean_simplification() {
+    fn deobfuscate_boolean_simplification() {
         let result = run_with_simplify("const a = !0; const b = !1;");
         assert!(result.contains("true"));
         assert!(result.contains("false"));
     }
 
     #[test]
-    fn test_deobfuscate_string_concat() {
+    fn deobfuscate_string_concat() {
         let result = run_with_simplify(r#"const s = "Hello" + "World";"#);
         assert!(result.contains("HelloWorld"));
     }
 
     #[test]
-    fn test_deobfuscate_member_expression() {
+    fn deobfuscate_member_expression() {
         let deob = Deobfuscator::new();
         let result = deob
             .deobfuscate_source(r#"console["log"]("test");"#, None)
@@ -474,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deobfuscate_dead_code() {
+    fn deobfuscate_dead_code() {
         let deob = Deobfuscator::new();
         let result = deob
             .deobfuscate_source("if (false) { dead(); } if (true) { alive(); }", None)
@@ -484,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deobfuscate_sequence() {
+    fn deobfuscate_sequence() {
         let deob = Deobfuscator::new();
         let result = deob.deobfuscate_source("a = 1, b = 2;", None).unwrap();
         assert!(result.contains("a = 1;"));
@@ -492,14 +490,14 @@ mod tests {
     }
 
     #[test]
-    fn test_deobfuscate_conditional() {
-        let result = run_with_simplify(r#"const x = true ? 'yes' : 'no';"#);
+    fn deobfuscate_conditional() {
+        let result = run_with_simplify(r"const x = true ? 'yes' : 'no';");
         assert!(result.contains("yes"));
         assert!(!result.contains("no"));
     }
 
     #[test]
-    fn test_verbose_option() {
+    fn verbose_option() {
         let deob = Deobfuscator::new();
         let options = DeobfuscateOptions {
             source_type: SourceType::Script,
@@ -507,19 +505,19 @@ mod tests {
             ..Default::default()
         };
         let result = deob.deobfuscate_source("var x = 1;", Some(options));
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
-    fn test_rename_pass_applied() {
+    fn rename_pass_applied() {
         let deob = Deobfuscator::new();
-        let code = r#"
+        let code = r"
 function _0x123(a1) {
     var _0xabc = a1;
     return _0xabc;
 }
 _0x123(1);
-"#;
+";
         let options = DeobfuscateOptions {
             source_type: SourceType::Script,
             rename: true,
@@ -532,15 +530,15 @@ _0x123(1);
     }
 
     #[test]
-    fn test_rename_pass_preserves_non_obfuscated() {
+    fn rename_pass_preserves_non_obfuscated() {
         let deob = Deobfuscator::new();
-        let code = r#"
+        let code = r"
 function normalName(value) {
     var count = value + 1;
     return count;
 }
 normalName(1);
-"#;
+";
         let options = DeobfuscateOptions {
             source_type: SourceType::Script,
             rename: true,
@@ -553,7 +551,7 @@ normalName(1);
     }
 
     #[test]
-    fn test_custom_transformers_override_default() {
+    fn custom_transformers_override_default() {
         let deob = Deobfuscator::new();
         let code = r#"console["log"]("test");"#;
         let options = DeobfuscateOptions {
@@ -567,7 +565,7 @@ normalName(1);
     }
 
     #[test]
-    fn test_ecma_version_option() {
+    fn ecma_version_option() {
         let deob = Deobfuscator::new();
         let options = DeobfuscateOptions {
             source_type: SourceType::Script,
@@ -576,6 +574,6 @@ normalName(1);
             ..Default::default()
         };
         let result = deob.deobfuscate_source("const x = 1;", Some(options));
-        assert!(result.is_ok());
+        result.unwrap();
     }
 }

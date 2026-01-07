@@ -12,13 +12,13 @@
 //! ```
 
 use std::collections::HashMap;
-use swc_common::{Globals, GLOBALS, Span};
+use swc_common::{GLOBALS, Globals, Span};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
-use crate::scope::{Id, analyze};
+use crate::scope::{Id, ScopeData, analyze};
 use crate::transformers::Transformer;
 
 /// `LiteralMap` transformer.
@@ -31,6 +31,16 @@ impl LiteralMap {
     #[must_use]
     pub const fn new() -> Self {
         Self
+    }
+
+    /// Replace read-only variables with their literal values in functions
+    /// This only applies to variables declared within functions, not global scope
+    fn literals(&self, context: &mut Context) {
+        // Apply only within functions
+        let mut func_visitor = FunctionLiteralsVisitor {
+            remove_garbage: context.remove_garbage,
+        };
+        context.ast.visit_mut_with(&mut func_visitor);
     }
 }
 
@@ -54,19 +64,6 @@ impl Transformer for LiteralMap {
         self.literals(context);
 
         Ok(())
-    }
-}
-
-impl LiteralMap {
-    /// Replace read-only variables with their literal values in functions
-    /// This only applies to variables declared within functions, not global scope
-    fn literals(&self, context: &mut Context) {
-        // Apply only within functions
-        let mut func_visitor = FunctionLiteralsVisitor {
-            remove_garbage: context.remove_garbage,
-        };
-        context.ast.visit_mut_with(&mut func_visitor);
-
     }
 }
 
@@ -195,13 +192,14 @@ impl LiteralMapVisitor {
 
     /// Extract literal value from an expression
     #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "JS numeric literal negation uses f64"
+    )]
     fn extract_literal(expr: &Expr) -> Option<LiteralValue> {
         match expr {
             Expr::Lit(lit) => match lit {
-                Lit::Str(s) => s
-                    .value
-                    .as_str()
-                    .map(|v| LiteralValue::String(v.to_string())),
+                Lit::Str(s) => s.value.as_str().map(|v| LiteralValue::String(v.to_owned())),
                 Lit::Num(n) => Some(LiteralValue::Number(n.value)),
                 Lit::Bool(b) => Some(LiteralValue::Bool(b.value)),
                 Lit::Null(_) => Some(LiteralValue::Null),
@@ -227,7 +225,7 @@ impl LiteralMapVisitor {
     fn get_key_string(key: &PropName) -> Option<String> {
         match key {
             PropName::Ident(id) => Some(id.sym.to_string()),
-            PropName::Str(s) => s.value.as_str().map(|v| v.to_string()),
+            PropName::Str(s) => s.value.as_str().map(|v| v.to_owned()),
             PropName::Num(n) => Some(n.value.to_string()),
             _ => None,
         }
@@ -304,7 +302,7 @@ impl VisitMut for LiteralMapVisitor {
                     MemberProp::Ident(id) => Some(id.sym.to_string()),
                     MemberProp::Computed(computed) => {
                         if let Expr::Lit(Lit::Str(s)) = &*computed.expr {
-                            s.value.as_str().map(|v| v.to_string())
+                            s.value.as_str().map(|v| v.to_owned())
                         } else {
                             None
                         }
@@ -324,7 +322,7 @@ impl VisitMut for LiteralMapVisitor {
 
 /// Visitor to find read-only variables initialized with literals
 struct ReadOnlyLiteralFinder<'a> {
-    scope_data: &'a crate::scope::ScopeData,
+    scope_data: &'a ScopeData,
     literals: &'a mut HashMap<Id, Expr>,
     vars_to_remove: &'a mut Vec<Id>,
     remove_garbage: bool,
@@ -381,13 +379,7 @@ fn extract_literal_expr(expr: &Expr) -> Option<Expr> {
             op: UnaryOp::Minus,
             arg,
             ..
-        }) => {
-            if matches!(&**arg, Expr::Lit(Lit::Num(_))) {
-                Some(expr.clone())
-            } else {
-                None
-            }
-        }
+        }) => matches!(&**arg, Expr::Lit(Lit::Num(_))).then(|| expr.clone()),
         _ => None,
     }
 }
@@ -434,11 +426,11 @@ mod tests {
     use super::*;
     use crate::Deobfuscator;
     use crate::deobfuscator::DeobfuscateOptions;
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     #[test]
-    fn test_literal_value_to_expr() {
-        let string_val = LiteralValue::String("hello".to_string());
+    fn literal_value_to_expr() {
+        let string_val = LiteralValue::String("hello".to_owned());
         assert!(matches!(string_val.to_expr(), Expr::Lit(Lit::Str(_))));
 
         let num_val = LiteralValue::Number(42.0);
@@ -452,15 +444,17 @@ mod tests {
     }
 
     #[test]
-    fn test_literal_map_replaces_same_decl_usage() {
+    fn literal_map_replaces_same_decl_usage() {
         let code = r#"
 function demo() {
   const map = { a: "x" }, obj = { val: map.a };
   return obj;
 }
 "#;
-        let mut options = DeobfuscateOptions::default();
-        options.custom_transformers = Some(vec![Arc::new(LiteralMap::new())]);
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![Arc::new(LiteralMap::new())]),
+            ..Default::default()
+        };
         let deob = Deobfuscator::new();
         let result = deob.deobfuscate_source(code, Some(options)).unwrap();
         assert!(!result.contains("map.a"));
@@ -468,15 +462,17 @@ function demo() {
     }
 
     #[test]
-    fn test_literal_map_keeps_object_when_used_as_value() {
+    fn literal_map_keeps_object_when_used_as_value() {
         let deob = Deobfuscator::new();
         let code = r#"
 function use(obj) { return obj.a; }
 const map = { a: "x", b: "y" };
 console.log(map.a, use(map));
 "#;
-        let mut options = DeobfuscateOptions::default();
-        options.custom_transformers = Some(vec![Arc::new(LiteralMap::new())]);
+        let options = DeobfuscateOptions {
+            custom_transformers: Some(vec![Arc::new(LiteralMap::new())]),
+            ..Default::default()
+        };
         let result = deob.deobfuscate_source(code, Some(options)).unwrap();
         assert!(result.contains("\"x\""));
         assert!(result.contains("use(map)"));

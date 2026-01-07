@@ -6,7 +6,7 @@
 use regex::Regex;
 use std::sync::LazyLock;
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
@@ -83,7 +83,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_valid_identifier_regex() {
+    fn valid_identifier_regex() {
         assert!(VALID_DOT_REGEX.is_match("property"));
         assert!(VALID_DOT_REGEX.is_match("camelCase"));
         assert!(VALID_DOT_REGEX.is_match("_private"));

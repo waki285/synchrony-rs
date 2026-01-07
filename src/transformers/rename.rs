@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
@@ -36,7 +36,9 @@ impl Rename {
         if name.len() <= 3
             && name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
             && name.len() > 1
-            && name[1..].chars().all(|c| c.is_ascii_digit())
+            && name
+                .get(1..)
+                .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit()))
         {
             return true;
         }
@@ -209,12 +211,12 @@ impl ScopeAwareRenamer {
     fn declare_name(&mut self, old_name: &str, kind: NameKind) -> String {
         // Skip builtins
         if Rename::is_builtin_name(old_name) {
-            return old_name.to_string();
+            return old_name.to_owned();
         }
 
         // Skip non-obfuscated names
         if !Rename::is_obfuscated_name(old_name) {
-            return old_name.to_string();
+            return old_name.to_owned();
         }
 
         if let Some(existing) = self.current_scope().bindings.get(old_name) {
@@ -228,10 +230,8 @@ impl ScopeAwareRenamer {
         };
 
         let scope = self.current_scope();
-        scope
-            .bindings
-            .insert(old_name.to_string(), new_name.clone());
-        scope.declared.insert(old_name.to_string());
+        scope.bindings.insert(old_name.to_owned(), new_name.clone());
+        scope.declared.insert(old_name.to_owned());
         new_name
     }
 
@@ -442,13 +442,13 @@ mod tests {
     use crate::Deobfuscator;
 
     #[test]
-    fn test_rename_new() {
+    fn rename_new() {
         let transformer = Rename::new();
         assert_eq!(transformer.name(), "Rename");
     }
 
     #[test]
-    fn test_is_obfuscated_name() {
+    fn is_obfuscated_name() {
         // Hex-style names
         assert!(Rename::is_obfuscated_name("_0x123"));
         assert!(Rename::is_obfuscated_name("_0xabc"));
@@ -473,15 +473,15 @@ mod tests {
     }
 
     #[test]
-    fn test_rename_variables() {
+    fn rename_variables() {
         let deob = Deobfuscator::new();
-        let code = r#"
+        let code = r"
 function _0x123() {
     var _0xabc = 1;
     return _0xabc;
 }
 _0x123();
-"#;
+";
         let options = crate::DeobfuscateOptions {
             source_type: crate::SourceType::Script,
             rename: true,
@@ -494,14 +494,14 @@ _0x123();
     }
 
     #[test]
-    fn test_rename_function_parameters() {
+    fn rename_function_parameters() {
         let deob = Deobfuscator::new();
-        let code = r#"
+        let code = r"
 function _0x123(a1, b2) {
     return a1 + b2;
 }
 _0x123(1, 2);
-"#;
+";
         let options = crate::DeobfuscateOptions {
             source_type: crate::SourceType::Script,
             rename: true,
@@ -514,15 +514,15 @@ _0x123(1, 2);
     }
 
     #[test]
-    fn test_rename_preserves_normal_names() {
+    fn rename_preserves_normal_names() {
         let deob = Deobfuscator::new();
-        let code = r#"
+        let code = r"
 function normalFunc() {
     var normalVar = 1;
     console.log(normalVar);
 }
 normalFunc();
-"#;
+";
         let options = crate::DeobfuscateOptions {
             source_type: crate::SourceType::Script,
             rename: true,
@@ -536,14 +536,14 @@ normalFunc();
     }
 
     #[test]
-    fn test_rename_multiple_functions() {
+    fn rename_multiple_functions() {
         let deob = Deobfuscator::new();
-        let code = r#"
+        let code = r"
 function _0x111() { return 1; }
 function _0x222() { return 2; }
 _0x111();
 _0x222();
-"#;
+";
         let options = crate::DeobfuscateOptions {
             source_type: crate::SourceType::Script,
             rename: true,
@@ -556,15 +556,15 @@ _0x222();
     }
 
     #[test]
-    fn test_rename_references_updated() {
+    fn rename_references_updated() {
         let deob = Deobfuscator::new();
-        let code = r#"
+        let code = r"
 function _0x123() {
     var _0xabc = 5;
     return _0xabc;
 }
 _0x123();
-"#;
+";
         let options = crate::DeobfuscateOptions {
             source_type: crate::SourceType::Script,
             rename: true,
@@ -577,7 +577,7 @@ _0x123();
     }
 
     #[test]
-    fn test_simple_renamer_generation() {
+    fn simple_renamer_generation() {
         let mut renamer = ScopeAwareRenamer::new(12345);
 
         // Now generates word-based names
@@ -593,7 +593,7 @@ _0x123();
     }
 
     #[test]
-    fn test_is_builtin_name() {
+    fn is_builtin_name() {
         assert!(Rename::is_builtin_name("console"));
         assert!(Rename::is_builtin_name("window"));
         assert!(Rename::is_builtin_name("document"));

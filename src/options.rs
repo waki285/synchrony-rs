@@ -32,7 +32,7 @@ pub const fn map_es_version_num(value: u32) -> Option<EsVersion> {
 pub fn parse_es_version_str(raw: &str) -> Result<EsVersion, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err("ECMAScript version is empty".to_string());
+        return Err("ECMAScript version is empty".to_owned());
     }
 
     let lower = trimmed.to_lowercase();

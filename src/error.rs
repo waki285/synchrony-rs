@@ -1,5 +1,6 @@
 //! Error types for the deobfuscator.
 
+use core::result::Result as CoreResult;
 use thiserror::Error;
 
 /// Errors returned by the deobfuscator APIs.
@@ -20,4 +21,4 @@ pub enum DeobfuscateError {
 }
 
 /// Result type used by the public API.
-pub type Result<T> = std::result::Result<T, DeobfuscateError>;
+pub type Result<T> = CoreResult<T, DeobfuscateError>;

@@ -5,7 +5,7 @@
 
 use swc_common::Span;
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
@@ -50,9 +50,11 @@ impl DesequenceVisitor {
     fn process_stmts(stmts: &mut Vec<Stmt>) {
         let mut i = 0;
         while i < stmts.len() {
-            if let Stmt::Decl(Decl::Var(var_decl)) = &stmts[i]
+            if let Some(stmt) = stmts.get(i)
+                && let Stmt::Decl(Decl::Var(var_decl)) = stmt
                 && var_decl.decls.len() > 1
             {
+                let var_decl = var_decl.clone();
                 let new_stmts: Vec<Stmt> = var_decl
                     .decls
                     .iter()
@@ -73,7 +75,8 @@ impl DesequenceVisitor {
                 continue;
             }
 
-            if let Stmt::Return(ret) = &stmts[i]
+            if let Some(stmt) = stmts.get(i)
+                && let Stmt::Return(ret) = stmt
                 && let Some(arg) = &ret.arg
                 && let Some(seq) = extract_seq_expr(arg)
             {
@@ -102,7 +105,8 @@ impl DesequenceVisitor {
                 continue;
             }
 
-            if let Stmt::Expr(expr_stmt) = &stmts[i]
+            if let Some(stmt) = stmts.get(i)
+                && let Stmt::Expr(expr_stmt) = stmt
                 && let Expr::Seq(seq) = &*expr_stmt.expr
             {
                 // Convert each expression in the sequence to a statement
@@ -202,16 +206,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_desequence() {
+    fn desequence() {
         // Basic test to ensure the struct can be created
         let transformer = Desequence::new();
         assert_eq!(transformer.name(), "Desequence");
     }
 
     #[test]
-    fn test_desequence_var_decl_split() {
+    fn desequence_var_decl_split() {
         use crate::{DeobfuscateOptions, Deobfuscator};
-        use std::sync::Arc;
+        use alloc::sync::Arc;
 
         let deob = Deobfuscator::new();
         let code = "const a = 1, b = 2;";
@@ -225,9 +229,9 @@ mod tests {
     }
 
     #[test]
-    fn test_desequence_return_sequence() {
+    fn desequence_return_sequence() {
         use crate::{DeobfuscateOptions, Deobfuscator};
-        use std::sync::Arc;
+        use alloc::sync::Arc;
 
         let deob = Deobfuscator::new();
         let code = "function f(){ return (a = 1, b = 2); }";

@@ -4,12 +4,23 @@
 
 #![cfg(feature = "cli")]
 #![expect(clippy::exit, reason = "CLI tool should exit on fatal errors")]
-#![expect(clippy::print_stderr, reason = "CLI tool should print output to stderr")]
-#![expect(clippy::print_stdout, reason = "CLI tool should print output to stdout")]
+#![expect(
+    clippy::print_stderr,
+    reason = "CLI tool should print output to stderr"
+)]
+#![expect(
+    clippy::print_stdout,
+    reason = "CLI tool should print output to stdout"
+)]
 
+extern crate alloc;
+
+use alloc::boxed::Box;
+use core::error::Error;
 use std::fs;
-use std::io::{self, IsTerminal, Read, Write};
+use std::io::{self, IsTerminal as _, Read as _, Write as _};
 use std::path::{Path, PathBuf};
+use std::{env, process};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
@@ -20,6 +31,8 @@ use synchrony_rs::deobfuscator::{DeobfuscateOptions, Deobfuscator, SourceType};
 use synchrony_rs::format::format_js;
 use synchrony_rs::options::{map_es_version_num, parse_es_version_str, parse_source_type_str};
 use synchrony_rs::transformers::TransformerConfig;
+#[cfg(feature = "tracing")]
+use tracing::subscriber;
 #[cfg(feature = "tracing")]
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -140,7 +153,7 @@ fn build_options_from_cli(
     rename: bool,
     ecma_version: Option<&str>,
     loose: bool,
-) -> Result<DeobfuscateOptions, Box<dyn std::error::Error>> {
+) -> Result<DeobfuscateOptions, Box<dyn Error>> {
     let ecma_version = match ecma_version {
         Some(value) => Some(parse_es_version_str(value)?),
         None => None,
@@ -159,7 +172,7 @@ fn apply_config_if_present(
     config: Option<&Path>,
     options: &mut DeobfuscateOptions,
     output: &mut Option<PathBuf>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     if let Some(path) = config {
         return apply_config(path, options, output);
     }
@@ -209,7 +222,9 @@ fn config_to_transformers(entries: Vec<ConfigTransformerEntry>) -> Vec<Transform
                 options: Value::Null,
             },
             ConfigTransformerEntry::Pair(name, options)
-            | ConfigTransformerEntry::Object { name, options } => TransformerConfig { name, options },
+            | ConfigTransformerEntry::Object { name, options } => {
+                TransformerConfig { name, options }
+            }
         })
         .collect()
 }
@@ -227,10 +242,10 @@ fn apply_config(
     path: &Path,
     options: &mut DeobfuscateOptions,
     output: &mut Option<PathBuf>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     let json = fs::read_to_string(path)?;
     let config: ConfigFile = serde_json::from_str(&json)?;
-    eprintln!("Loaded config from \"{}\"", path.display());
+    eprintln!("Loaded config from \"{path}\"", path = path.display());
 
     if let Some(rename) = config.rename {
         options.rename = rename;
@@ -261,11 +276,11 @@ fn apply_config(
 fn main() {
     if let Err(e) = run() {
         eprintln!("Error: {e}");
-        std::process::exit(1);
+        process::exit(1);
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     // Initialize tracing subscriber (only when tracing feature is enabled)
@@ -274,7 +289,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         // --verbose flag takes precedence, otherwise use RUST_LOG env var (default: warn)
         let filter = if cli.verbose {
             EnvFilter::new("debug")
-        } else if std::env::var("RUST_LOG").is_ok() {
+        } else if env::var("RUST_LOG").is_ok() {
             EnvFilter::from_default_env()
         } else {
             EnvFilter::new("warn")
@@ -286,7 +301,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .with_thread_ids(false)
             .without_time()
             .finish();
-        let _ = tracing::subscriber::set_global_default(subscriber);
+        if subscriber::set_global_default(subscriber).is_err() {
+            // Another subscriber has already been set; ignore.
+        }
     }
 
     // Handle --eval flag for quick testing
@@ -313,7 +330,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             ecma_version,
             loose,
             source_type,
-            verbose: _,
+            ..
         }) => {
             let mut options =
                 build_options_from_cli(source_type, rename, ecma_version.as_deref(), loose)?;
@@ -323,7 +340,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => {
             // Check if file argument was provided directly
-            if let Some(ref file) = cli.file {
+            if let Some(file) = &cli.file {
                 // Check for "-" which means stdin
                 if file.as_os_str() == "-" {
                     // Read from stdin
@@ -343,7 +360,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // Output to stdout or file
                     if let Some(output) = output {
                         fs::write(&output, &result)?;
-                        eprintln!("Deobfuscated code written to {}", output.display());
+                        eprintln!(
+                            "Deobfuscated code written to {path}",
+                            path = output.display()
+                        );
                     } else {
                         io::stdout().write_all(result.as_bytes())?;
                     }
@@ -360,7 +380,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
             } else {
                 // Check if stdin has data
-                if !std::io::stdin().is_terminal() {
+                if !io::stdin().is_terminal() {
                     // Read from stdin
                     let mut source = String::new();
                     io::stdin().read_to_string(&mut source)?;
@@ -378,7 +398,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // Output to stdout or file
                     if let Some(output) = output {
                         fs::write(&output, &result)?;
-                        eprintln!("Deobfuscated code written to {}", output.display());
+                        eprintln!(
+                            "Deobfuscated code written to {path}",
+                            path = output.display()
+                        );
                     } else {
                         io::stdout().write_all(result.as_bytes())?;
                     }
@@ -390,7 +413,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     eprintln!("       cat file.js | synchrony > output.js");
                     eprintln!();
                     eprintln!("For more information, try '--help'.");
-                    std::process::exit(1);
+                    process::exit(1);
                 }
             }
         }
@@ -403,7 +426,7 @@ fn deobfuscate_code(
     code: &str,
     options: DeobfuscateOptions,
     format: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     let result = deobfuscate_source(code, options, format)?;
     println!("{result}");
     Ok(())
@@ -414,7 +437,7 @@ fn deobfuscate_file(
     output: Option<PathBuf>,
     options: DeobfuscateOptions,
     format: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     // Check if file exists
     if !input.exists() {
         return Err(format!("File not found: {}", input.display()).into());
@@ -423,8 +446,8 @@ fn deobfuscate_file(
     // Read input file
     let source = fs::read_to_string(input)?;
 
-    eprintln!("Reading from: {}", input.display());
-    eprintln!("Source size: {} bytes", source.len());
+    eprintln!("Reading from: {path}", path = input.display());
+    eprintln!("Source size: {size} bytes", size = source.len());
 
     // Deobfuscate
     let result = deobfuscate_source(&source, options, format)?;
@@ -445,7 +468,10 @@ fn deobfuscate_file(
     // Write output
     fs::write(&output_path, &result)?;
 
-    eprintln!("Deobfuscated code written to {}", output_path.display());
+    eprintln!(
+        "Deobfuscated code written to {path}",
+        path = output_path.display()
+    );
 
     Ok(())
 }
@@ -454,13 +480,13 @@ fn deobfuscate_source(
     source: &str,
     options: DeobfuscateOptions,
     format: bool,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn Error>> {
     let deobfuscator = Deobfuscator::new();
     let source_type = options.source_type;
 
     let result = deobfuscator
         .deobfuscate_source(source, Some(options))
-        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+        .map_err(|e| -> Box<dyn Error> { e.into() })?;
 
     if format {
         #[cfg(feature = "format")]

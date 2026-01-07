@@ -6,7 +6,7 @@
 //! ```rust
 //! use synchrony_rs::{DeobfuscateOptions, Deobfuscator};
 //! use synchrony_rs::transformers::Simplify;
-//! use std::sync::Arc;
+//! use alloc::sync::Arc;
 //!
 //! let deob = Deobfuscator::new();
 //! let options = DeobfuscateOptions {
@@ -36,6 +36,8 @@
 //!
 //! ## CLI
 //! Build the CLI with default features and run `synchrony --help` for usage.
+
+extern crate alloc;
 
 pub mod context;
 pub mod deobfuscator;

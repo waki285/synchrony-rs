@@ -17,19 +17,33 @@
 use std::collections::HashMap;
 use swc_common::{Span, SyntaxContext};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
 use crate::transformers::Transformer;
 
+const ZERO_F64: f64 = 0.0;
+
 /// Variable stack for tracking state variables during deflatten
 type VarStack = HashMap<String, f64>;
 
 /// Evaluate assignment operator and update stack
+#[expect(
+    clippy::float_arithmetic,
+    reason = "JS control-flow evaluation mirrors JS f64 arithmetic"
+)]
+#[expect(
+    clippy::modulo_arithmetic,
+    reason = "JS `%` semantics are required for control-flow evaluation"
+)]
+#[expect(
+    clippy::as_conversions,
+    reason = "JS bitwise operators coerce via 32-bit integer casts"
+)]
 fn evaluate_assignment(stack: &mut VarStack, var: &str, op: AssignOp, value: f64) -> Option<f64> {
     if op == AssignOp::Assign {
-        stack.insert(var.to_string(), value);
+        stack.insert(var.to_owned(), value);
         return Some(value);
     }
 
@@ -39,14 +53,14 @@ fn evaluate_assignment(stack: &mut VarStack, var: &str, op: AssignOp, value: f64
         AssignOp::SubAssign => current - value,
         AssignOp::MulAssign => current * value,
         AssignOp::DivAssign => {
-            if value != 0.0 {
+            if value != ZERO_F64 {
                 current / value
             } else {
                 return None;
             }
         }
         AssignOp::ModAssign => {
-            if value != 0.0 {
+            if value != ZERO_F64 {
                 current % value
             } else {
                 return None;
@@ -60,12 +74,24 @@ fn evaluate_assignment(stack: &mut VarStack, var: &str, op: AssignOp, value: f64
         AssignOp::BitOrAssign => ((current as i64) | (value as i64)) as f64,
         _ => return None,
     };
-    stack.insert(var.to_string(), result);
+    stack.insert(var.to_owned(), result);
     Some(result)
 }
 
 /// Evaluate a binary expression with variable substitution from stack
 #[must_use]
+#[expect(
+    clippy::float_arithmetic,
+    reason = "JS control-flow evaluation mirrors JS f64 arithmetic"
+)]
+#[expect(
+    clippy::modulo_arithmetic,
+    reason = "JS `%` semantics are required for control-flow evaluation"
+)]
+#[expect(
+    clippy::as_conversions,
+    reason = "JS bitwise operators coerce via 32-bit integer casts"
+)]
 fn evaluate_binary_expr(stack: &VarStack, expr: &Expr) -> Option<f64> {
     match expr {
         Expr::Lit(Lit::Num(n)) => Some(n.value),
@@ -73,7 +99,7 @@ fn evaluate_binary_expr(stack: &VarStack, expr: &Expr) -> Option<f64> {
             let inner = evaluate_binary_expr(stack, &u.arg)?;
             Some(-inner)
         }
-        Expr::Ident(id) => stack.get(&id.sym.to_string()).copied(),
+        Expr::Ident(id) => stack.get(id.sym.as_ref()).copied(),
         Expr::Bin(bin) => {
             let lhs = evaluate_binary_expr(stack, &bin.left)?;
             let rhs = evaluate_binary_expr(stack, &bin.right)?;
@@ -81,20 +107,8 @@ fn evaluate_binary_expr(stack: &VarStack, expr: &Expr) -> Option<f64> {
                 BinaryOp::Add => Some(lhs + rhs),
                 BinaryOp::Sub => Some(lhs - rhs),
                 BinaryOp::Mul => Some(lhs * rhs),
-                BinaryOp::Div => {
-                    if rhs != 0.0 {
-                        Some(lhs / rhs)
-                    } else {
-                        None
-                    }
-                }
-                BinaryOp::Mod => {
-                    if rhs != 0.0 {
-                        Some(lhs % rhs)
-                    } else {
-                        None
-                    }
-                }
+                BinaryOp::Div => (rhs != ZERO_F64).then(|| lhs / rhs),
+                BinaryOp::Mod => (rhs != ZERO_F64).then(|| lhs % rhs),
                 BinaryOp::BitAnd => Some(((lhs as i64) & (rhs as i64)) as f64),
                 BinaryOp::BitOr => Some(((lhs as i64) | (rhs as i64)) as f64),
                 BinaryOp::BitXor => Some(((lhs as i64) ^ (rhs as i64)) as f64),
@@ -135,13 +149,17 @@ impl JSConfuserControlFlow {
 
     /// Evaluate a simple math operation
     #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "JS numeric semantics for switch fixups"
+    )]
     const fn math_eval(lhs: f64, op: BinaryOp, rhs: f64) -> Option<f64> {
         match op {
             BinaryOp::Add => Some(lhs + rhs),
             BinaryOp::Sub => Some(lhs - rhs),
             BinaryOp::Mul => Some(lhs * rhs),
             BinaryOp::Div => {
-                if rhs == 0.0 {
+                if rhs == ZERO_F64 {
                     None
                 } else {
                     Some(lhs / rhs)
@@ -179,29 +197,6 @@ impl Transformer for JSConfuserControlFlow {
 /// Deflattens while+switch control flow patterns
 struct Deflattener;
 
-impl Deflattener {
-    #[must_use]
-    const fn new() -> Self {
-        Self
-    }
-
-    /// Get numeric value from expression
-    #[must_use]
-    fn get_numeric_value(expr: &Expr) -> Option<f64> {
-        match expr {
-            Expr::Lit(Lit::Num(n)) => Some(n.value),
-            Expr::Unary(unary) if unary.op == UnaryOp::Minus => {
-                if let Expr::Lit(Lit::Num(n)) = &*unary.arg {
-                    Some(-n.value)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-}
-
 impl VisitMut for Deflattener {
     fn visit_mut_block_stmt(&mut self, block: &mut BlockStmt) {
         block.visit_mut_children_with(self);
@@ -225,6 +220,31 @@ impl VisitMut for Deflattener {
 }
 
 impl Deflattener {
+    #[must_use]
+    const fn new() -> Self {
+        Self
+    }
+
+    /// Get numeric value from expression
+    #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "JS numeric literal negation uses f64"
+    )]
+    fn get_numeric_value(expr: &Expr) -> Option<f64> {
+        match expr {
+            Expr::Lit(Lit::Num(n)) => Some(n.value),
+            Expr::Unary(unary) if unary.op == UnaryOp::Minus => {
+                if let Expr::Lit(Lit::Num(n)) = &*unary.arg {
+                    Some(-n.value)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Try to deflatten a while+switch pattern
     #[must_use]
     fn try_deflatten(&self, while_stmt: &WhileStmt, block: &BlockStmt) -> Option<Vec<Stmt>> {
@@ -286,7 +306,7 @@ impl Deflattener {
         match expr {
             Expr::Ident(id) => {
                 // Initialize with 0 for now, will be updated from declarations
-                stack.insert(id.sym.to_string(), 0.0);
+                stack.insert(id.sym.to_string(), ZERO_F64);
             }
             Expr::Bin(bin) => {
                 Self::extract_state_vars(&bin.left, stack);
@@ -451,6 +471,10 @@ impl SwitchFixer {
 
     /// Extract numeric value from expression
     #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "JS numeric literal negation uses f64"
+    )]
     fn get_numeric_value(expr: &Expr) -> Option<f64> {
         match Self::strip_parens(expr) {
             Expr::Lit(Lit::Num(n)) => Some(n.value),
@@ -505,27 +529,11 @@ impl SwitchFixer {
                 .is_some_and(|t| Self::get_numeric_value(t).is_some())
         })
     }
-}
 
-impl VisitMut for SwitchFixer {
-    fn visit_mut_fn_decl(&mut self, func: &mut FnDecl) {
-        func.visit_mut_children_with(self);
-
-        if let Some(body) = &mut func.function.body {
-            self.process_block(body);
-        }
-    }
-
-    fn visit_mut_fn_expr(&mut self, func: &mut FnExpr) {
-        func.visit_mut_children_with(self);
-
-        if let Some(body) = &mut func.function.body {
-            self.process_block(body);
-        }
-    }
-}
-
-impl SwitchFixer {
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "JS numeric semantics for switch value inversion"
+    )]
     fn process_block(&self, block: &mut BlockStmt) {
         // Build a map of variable declarations
         let mut var_inits: HashMap<String, Box<Expr>> = HashMap::new();
@@ -586,7 +594,7 @@ impl SwitchFixer {
                                                 );
                                                 if let Some(nv) = new_val {
                                                     // Replace test with new value
-                                                    *test = if nv < 0.0 {
+                                                    *test = if nv < ZERO_F64 {
                                                         Box::new(Expr::Unary(UnaryExpr {
                                                             span: Span::default(),
                                                             op: UnaryOp::Minus,
@@ -626,12 +634,30 @@ impl SwitchFixer {
     }
 }
 
+impl VisitMut for SwitchFixer {
+    fn visit_mut_fn_decl(&mut self, func: &mut FnDecl) {
+        func.visit_mut_children_with(self);
+
+        if let Some(body) = &mut func.function.body {
+            self.process_block(body);
+        }
+    }
+
+    fn visit_mut_fn_expr(&mut self, func: &mut FnExpr) {
+        func.visit_mut_children_with(self);
+
+        if let Some(body) = &mut func.function.body {
+            self.process_block(body);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Deobfuscator;
     use crate::deobfuscator::DeobfuscateOptions;
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     fn deob_with_jsconfuser(code: &str) -> String {
         let deob = Deobfuscator::new();
@@ -643,13 +669,13 @@ mod tests {
     }
 
     #[test]
-    fn test_jsconfuser_controlflow_new() {
+    fn jsconfuser_controlflow_new() {
         let transformer = JSConfuserControlFlow::new();
         assert_eq!(transformer.name(), "JSConfuserControlFlow");
     }
 
     #[test]
-    fn test_inverse_operator() {
+    fn inverse_operator() {
         assert_eq!(
             JSConfuserControlFlow::inverse_operator(BinaryOp::Add),
             Some(BinaryOp::Sub)
@@ -669,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn test_switch_fix_basic() {
+    fn switch_fix_basic() {
         let code = r#"
 function test(x) {
     var state = (x * 2) + 5;
@@ -695,7 +721,7 @@ function test(x) {
     }
 
     #[test]
-    fn test_switch_fix_basic_necessary_paren() {
+    fn switch_fix_basic_necessary_paren() {
         let code = r#"
 function test(x) {
     var state = (x + 2) * 5;

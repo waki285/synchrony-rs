@@ -1,5 +1,5 @@
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::{DecoderFunction, DecoderReference};
 
@@ -129,7 +129,8 @@ impl<'a> FunctionReferenceFinder<'a> {
                 // Check if left side is the parameter
                 if let Expr::Ident(ident) = Self::strip_parens(&bin.left)
                     && ident.sym == param_name
-                    && let Some(val) = eval_const_i64(&bin.right).map(|v| v as i32)
+                    && let Some(val) =
+                        eval_const_i64(&bin.right).and_then(|v| i32::try_from(v).ok())
                 {
                     return match bin.op {
                         BinaryOp::Sub => Some(-val), // param - val means offset of -val
@@ -186,7 +187,8 @@ impl VisitMut for FunctionReferenceFinder<'_> {
 
             // Must have exactly one return statement
             if non_empty.len() == 1
-                && let Stmt::Return(ret) = non_empty[0]
+                && let Some(stmt) = non_empty.first()
+                && let Stmt::Return(ret) = stmt
                 && let Some(arg) = &ret.arg
                 && let Expr::Call(call) = &**arg
                 && let Callee::Expr(callee) = &call.callee
@@ -198,7 +200,7 @@ impl VisitMut for FunctionReferenceFinder<'_> {
                     let (callee_index_arg, callee_key_arg) =
                         self.callee_arg_positions(&callee_name);
                     // Found a wrapper! Extract argument mapping
-                    let mut additional_offset = 0i32;
+                    let mut additional_offset: i32 = 0;
                     let mut index_argument = None;
                     let mut key_argument = None;
 

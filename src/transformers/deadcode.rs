@@ -8,13 +8,14 @@
 //! - Remove unused obfuscated declarations that are side-effect free
 
 use std::collections::{HashMap, HashSet};
-use swc_common::{Globals, GLOBALS, Span};
+use std::env;
+use swc_common::{GLOBALS, Globals, Span};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
+use swc_ecma_visit::{Visit, VisitMut, VisitMutWith as _, VisitWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
-use crate::scope::{Id, analyze};
+use crate::scope::{Id, ScopeData, analyze};
 use crate::transformers::Transformer;
 
 /// `DeadCode` transformer - removes unreachable code.
@@ -23,10 +24,46 @@ use crate::transformers::Transformer;
 #[derive(Debug)]
 pub struct DeadCode;
 
+const MAX_GARBAGE_PASSES: usize = 3;
+
 impl DeadCode {
     #[must_use]
     pub const fn new() -> Self {
         Self
+    }
+
+    /// Remove unreferenced variables
+    /// Note: This is disabled by default in the original TypeScript implementation
+    #[expect(dead_code, reason = "kept for parity with upstream dead-variable pass")]
+    fn remove_dead_variables(&self, context: &mut Context) {
+        // Analyze variable usage
+        let scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
+
+        // Find dead variables (declared but never referenced)
+        let mut dead_vars: HashSet<Id> = HashSet::new();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "dead-variable scan is order-independent"
+        )]
+        for (id, var_info) in &scope_data.vars {
+            // Skip 'arguments'
+            if id.0.as_str() == "arguments" {
+                continue;
+            }
+
+            // A variable is dead if it's declared but never used (ref_count == 0)
+            // Note: we check usage_count instead since ref_count includes the declaration
+            if var_info.declared && var_info.ref_count == 0 {
+                dead_vars.insert(id.clone());
+            }
+        }
+
+        // Remove dead variable declarations
+        let mut remover = DeadVariableRemover {
+            dead_vars: &dead_vars,
+        };
+        context.ast.visit_mut_with(&mut remover);
     }
 }
 
@@ -71,7 +108,7 @@ impl Transformer for DeadCode {
 
         if context.remove_garbage && !context.rename_enabled {
             // Remove unused obfuscated identifiers after simplifications.
-            for _ in 0..3 {
+            for _ in 0..MAX_GARBAGE_PASSES {
                 let scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
                 if scope_data.top.has_with_stmt || scope_data.top.has_eval_call {
                     break;
@@ -113,7 +150,7 @@ impl Transformer for DeadCodeSafe {
             return Ok(());
         }
 
-        for _ in 0..3 {
+        for _ in 0..MAX_GARBAGE_PASSES {
             let scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
             if scope_data.top.has_with_stmt || scope_data.top.has_eval_call {
                 break;
@@ -154,39 +191,6 @@ impl Transformer for DeadCodeSafe {
             }
         }
         Ok(())
-    }
-}
-
-impl DeadCode {
-    /// Remove unreferenced variables
-    /// Note: This is disabled by default in the original TypeScript implementation
-    #[expect(dead_code)]
-    fn remove_dead_variables(&self, context: &mut Context) {
-        // Analyze variable usage
-        let scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
-
-        // Find dead variables (declared but never referenced)
-        let mut dead_vars: HashSet<Id> = HashSet::new();
-
-        for (id, var_info) in &scope_data.vars {
-            // Skip 'arguments'
-            if id.0.as_str() == "arguments" {
-                continue;
-            }
-
-            // A variable is dead if it's declared but never used (ref_count == 0)
-            // Note: we check usage_count instead since ref_count includes the declaration
-            if var_info.declared && var_info.ref_count == 0 {
-                dead_vars.insert(id.clone());
-            }
-        }
-
-        // Remove dead variable declarations
-        let mut remover = DeadVariableRemover {
-            dead_vars: &dead_vars,
-        };
-        context.ast.visit_mut_with(&mut remover);
-
     }
 }
 
@@ -290,13 +294,23 @@ impl VisitMut for BlockCleanupVisitor {
         // Inline if(true) { ... } blocks
         let mut i = 0;
         while i < stmts.len() {
-            if let Stmt::If(if_stmt) = &stmts[i]
-                && is_bool_literal(&if_stmt.test, true)
-                && if_stmt.alt.is_none()
-                && let Stmt::Block(block) = &*if_stmt.cons
-            {
+            let inline_block = match stmts.get(i) {
+                Some(Stmt::If(if_stmt))
+                    if is_bool_literal(&if_stmt.test, true)
+                        && if_stmt.alt.is_none()
+                        && matches!(&*if_stmt.cons, Stmt::Block(_)) =>
+                {
+                    if let Stmt::Block(block) = &*if_stmt.cons {
+                        Some(block.stmts.clone())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
+            if let Some(block_stmts) = inline_block {
                 // Replace if(true) { stmts... } with stmts...
-                let block_stmts = block.stmts.clone();
                 stmts.splice(i..=i, block_stmts);
                 continue; // Don't increment i, check the new statement at this position
             }
@@ -325,12 +339,12 @@ impl VisitMut for BlockCleanupVisitor {
 }
 
 struct ObfuscatedDeadCodeRemover<'a> {
-    scope_data: &'a crate::scope::ScopeData,
+    scope_data: &'a ScopeData,
     changed: bool,
 }
 
 impl<'a> ObfuscatedDeadCodeRemover<'a> {
-    const fn new(scope_data: &'a crate::scope::ScopeData) -> Self {
+    const fn new(scope_data: &'a ScopeData) -> Self {
         Self {
             scope_data,
             changed: false,
@@ -442,7 +456,7 @@ impl Visit for DeclarationSpanCollector {
     fn visit_binding_ident(&mut self, ident: &BindingIdent) {
         let id: Id = (ident.id.sym.clone(), ident.id.ctxt);
         self.decl_spans.entry(id).or_default().insert(ident.id.span);
-        if let Ok(name) = std::env::var("SYNCHRONY_DEBUG_DEADCODE_NAME")
+        if let Ok(name) = env::var("SYNCHRONY_DEBUG_DEADCODE_NAME")
             && name == ident.id.sym.as_ref()
         {
             crate::log_info!(
@@ -550,7 +564,7 @@ impl Visit for DirectUsageCollector<'_> {
         {
             return;
         }
-        if let Ok(name) = std::env::var("SYNCHRONY_DEBUG_DEADCODE_NAME")
+        if let Ok(name) = env::var("SYNCHRONY_DEBUG_DEADCODE_NAME")
             && name == ident.sym.as_ref()
         {
             crate::log_info!(
@@ -559,13 +573,18 @@ impl Visit for DirectUsageCollector<'_> {
                 ident.span.lo.0,
                 ident.span.hi.0
             );
-            if let Some(source) = self.source {
-                let lo = ident.span.lo.0 as usize;
-                let hi = ident.span.hi.0 as usize;
-                if lo < source.len() && hi <= source.len() && lo < hi {
-                    let start = lo.saturating_sub(40);
-                    let end = (hi + 40).min(source.len());
-                    let snippet = &source[start..end];
+            if let Some(source) = self.source
+                && let (Ok(lo), Ok(hi)) = (
+                    usize::try_from(ident.span.lo.0),
+                    usize::try_from(ident.span.hi.0),
+                )
+                && lo < source.len()
+                && hi <= source.len()
+                && lo < hi
+            {
+                let start = lo.saturating_sub(40);
+                let end = (hi + 40).min(source.len());
+                if let Some(snippet) = source.get(start..end) {
                     crate::log_info!(
                         "[DeadCodeSafe] use snippet: {}",
                         snippet.replace('\n', "\\n")
@@ -589,7 +608,7 @@ impl Visit for DirectUsageCollector<'_> {
 }
 
 struct UnusedDeclarationRemover<'a> {
-    scope_data: &'a crate::scope::ScopeData,
+    scope_data: &'a ScopeData,
     direct_usage: &'a HashMap<Id, u32>,
     fn_external_usage: &'a HashMap<Id, u32>,
     in_for_in_of_head: bool,
@@ -608,7 +627,7 @@ struct NoopFunctionCollector {
 }
 
 struct SafeNoopCallRemover<'a> {
-    scope_data: &'a crate::scope::ScopeData,
+    scope_data: &'a ScopeData,
     noop_functions: &'a HashSet<String>,
     changed: bool,
 }
@@ -639,7 +658,7 @@ impl Visit for NoopFunctionCollector {
 }
 
 impl<'a> SafeNoopCallRemover<'a> {
-    const fn new(scope_data: &'a crate::scope::ScopeData, noop_functions: &'a HashSet<String>) -> Self {
+    const fn new(scope_data: &'a ScopeData, noop_functions: &'a HashSet<String>) -> Self {
         Self {
             scope_data,
             noop_functions,
@@ -689,7 +708,7 @@ impl VisitMut for SafeNoopCallRemover<'_> {
 
 impl<'a> UnusedDeclarationRemover<'a> {
     fn new(
-        scope_data: &'a crate::scope::ScopeData,
+        scope_data: &'a ScopeData,
         direct_usage: &'a HashMap<Id, u32>,
         fn_external_usage: &'a HashMap<Id, u32>,
     ) -> Self {
@@ -698,7 +717,7 @@ impl<'a> UnusedDeclarationRemover<'a> {
             direct_usage,
             fn_external_usage,
             in_for_in_of_head: false,
-            debug_name: std::env::var("SYNCHRONY_DEBUG_DEADCODE_NAME").ok(),
+            debug_name: env::var("SYNCHRONY_DEBUG_DEADCODE_NAME").ok(),
             changed: false,
         }
     }
@@ -926,7 +945,9 @@ fn is_noop_function_body(func: &Function, name: &str) -> bool {
     }
 
     if stmts.len() == 1 {
-        return is_self_assign_noop_stmt(stmts[0], name);
+        return stmts
+            .first()
+            .is_some_and(|stmt| is_self_assign_noop_stmt(stmt, name));
     }
 
     false
@@ -975,7 +996,7 @@ fn is_empty_function_body(func: &Function) -> bool {
 }
 
 #[must_use]
-fn is_safe_arg_expr(expr: &Expr, scope_data: &crate::scope::ScopeData) -> bool {
+fn is_safe_arg_expr(expr: &Expr, scope_data: &ScopeData) -> bool {
     match expr {
         Expr::Paren(paren) => is_safe_arg_expr(&paren.expr, scope_data),
         Expr::Seq(seq) => seq
@@ -999,7 +1020,7 @@ fn is_safe_arg_expr(expr: &Expr, scope_data: &crate::scope::ScopeData) -> bool {
 }
 
 #[must_use]
-fn is_unused_write(ident: &Ident, scope_data: &crate::scope::ScopeData) -> bool {
+fn is_unused_write(ident: &Ident, scope_data: &ScopeData) -> bool {
     let id = (ident.sym.clone(), ident.ctxt);
     let Some(info) = scope_data.vars.get(&id) else {
         return false;
@@ -1011,11 +1032,11 @@ fn is_unused_write(ident: &Ident, scope_data: &crate::scope::ScopeData) -> bool 
 }
 
 struct UndefinedObfuscatedCallRemover<'a> {
-    scope_data: &'a crate::scope::ScopeData,
+    scope_data: &'a ScopeData,
 }
 
 impl<'a> UndefinedObfuscatedCallRemover<'a> {
-    const fn new(scope_data: &'a crate::scope::ScopeData) -> Self {
+    const fn new(scope_data: &'a ScopeData) -> Self {
         Self { scope_data }
     }
 
@@ -1115,16 +1136,14 @@ fn extract_iife_expr(expr: &Expr) -> Option<IifeCallee<'_>> {
         Expr::Arrow(arrow) => Some(IifeCallee::Arrow(arrow)),
         Expr::Paren(paren) => extract_iife_expr(&paren.expr),
         Expr::Seq(seq) => {
-            seq.exprs.last().and_then(|last| {
-                if seq.exprs[..seq.exprs.len().saturating_sub(1)]
-                    .iter()
-                    .all(|expr| is_pure_expr(expr))
-                {
-                    extract_iife_expr(last)
-                } else {
-                    None
-                }
-            })
+            let last = seq.exprs.last()?;
+            let prefix_len = seq.exprs.len().saturating_sub(1);
+            let prefix = seq.exprs.get(..prefix_len).unwrap_or(&[]);
+            if prefix.iter().all(|expr| is_pure_expr(expr)) {
+                extract_iife_expr(last)
+            } else {
+                None
+            }
         }
         _ => None,
     }
@@ -1138,17 +1157,13 @@ fn is_pure_stmt_list(stmts: &[Stmt]) -> bool {
 #[must_use]
 fn is_pure_stmt(stmt: &Stmt) -> bool {
     match stmt {
-        Stmt::Decl(Decl::Var(var_decl)) => var_decl.decls.iter().all(|decl| {
-            decl.init
-                .as_ref()
-                .is_none_or(|init| is_pure_expr(init))
-        }),
+        Stmt::Decl(Decl::Var(var_decl)) => var_decl
+            .decls
+            .iter()
+            .all(|decl| decl.init.as_ref().is_none_or(|init| is_pure_expr(init))),
         Stmt::Empty(_) | Stmt::Decl(Decl::Fn(_)) => true,
         Stmt::Block(block) => is_pure_stmt_list(&block.stmts),
-        Stmt::Return(ret) => ret
-            .arg
-            .as_ref()
-            .is_none_or(|arg| is_pure_expr(arg)),
+        Stmt::Return(ret) => ret.arg.as_ref().is_none_or(|arg| is_pure_expr(arg)),
         _ => false,
     }
 }
@@ -1278,7 +1293,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_is_bool_literal() {
+    fn is_bool_literal_works() {
         let true_lit = Expr::Lit(Lit::Bool(Bool {
             span: Span::default(),
             value: true,

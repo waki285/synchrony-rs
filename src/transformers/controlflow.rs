@@ -5,11 +5,12 @@
 //! - Finding and resolving control flow storage objects
 //! - Deflattening switch-based control flow
 
+use core::mem;
 use std::collections::HashMap;
 
 use swc_common::{Span, SyntaxContext};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::{Context, ControlFlowFunction, ControlFlowLiteral, ControlFlowStorage};
 use crate::error::Result;
@@ -150,9 +151,11 @@ impl VisitMut for EmptyObjectPopulator {
 
         // Remove setter statements (in reverse order)
         for idx in stmts_to_remove.into_iter().rev() {
-            block.stmts[idx] = Stmt::Empty(EmptyStmt {
-                span: Span::default(),
-            });
+            if let Some(stmt) = block.stmts.get_mut(idx) {
+                *stmt = Stmt::Empty(EmptyStmt {
+                    span: Span::default(),
+                });
+            }
         }
 
         // Clean up empty statements
@@ -187,7 +190,7 @@ impl<'a> ControlFlowStoragePass<'a> {
                 if let Prop::KeyValue(kv) = &**prop {
                     let key = match &kv.key {
                         PropName::Ident(id) => Some(id.sym.to_string()),
-                        PropName::Str(s) => s.value.as_str().map(|v| v.to_string()),
+                        PropName::Str(s) => s.value.as_str().map(|v| v.to_owned()),
                         PropName::Num(n) => Some(n.value.to_string()),
                         _ => None,
                     };
@@ -219,15 +222,15 @@ impl<'a> ControlFlowStoragePass<'a> {
             return None;
         }
 
-        if !matches!(stmts[0], Stmt::Return(_)) {
+        let Some(Stmt::Return(_)) = stmts.first() else {
             return None;
-        }
+        };
 
         let mut new_func = func.clone();
         new_func.body = Some(BlockStmt {
             span: body.span,
             ctxt: body.ctxt,
-            stmts: std::mem::take(&mut stmts),
+            stmts: mem::take(&mut stmts),
         });
 
         Some(Box::new(new_func))
@@ -280,7 +283,7 @@ impl<'a> ControlFlowStoragePass<'a> {
 
                     let key = match &kv.key {
                         PropName::Ident(id) => Some(id.sym.to_string()),
-                        PropName::Str(s) => s.value.as_str().map(|v| v.to_string()),
+                        PropName::Str(s) => s.value.as_str().map(|v| v.to_owned()),
                         PropName::Num(n) => Some(n.value.to_string()),
                         _ => None,
                     };
@@ -337,11 +340,7 @@ impl<'a> ControlFlowStoragePass<'a> {
             }
         }
 
-        if last_identifier.is_some() {
-            Some(bid)
-        } else {
-            None
-        }
+        last_identifier.is_some().then_some(bid)
     }
 
     fn find_aliases_in_block(
@@ -426,7 +425,7 @@ impl ControlFlowStoragePass<'_> {
         let mut block = BlockStmt {
             span,
             ctxt: SyntaxContext::empty(),
-            stmts: std::mem::take(stmts),
+            stmts: mem::take(stmts),
         };
         self.visit_mut_block_stmt(&mut block);
         *stmts = block.stmts;
@@ -486,7 +485,7 @@ impl ControlFlowReplacer {
             return None;
         }
 
-        let Stmt::Return(ret) = stmts[0] else {
+        let Some(Stmt::Return(ret)) = stmts.first() else {
             return None;
         };
         let return_expr = ret.arg.as_ref()?.clone();
@@ -519,7 +518,7 @@ impl VisitMut for ControlFlowReplacer {
             let prop_name = match &member.prop {
                 MemberProp::Ident(prop) => Some(prop.sym.to_string()),
                 MemberProp::Computed(comp) => match &*comp.expr {
-                    Expr::Lit(Lit::Str(s)) => s.value.as_str().map(|v| v.to_string()),
+                    Expr::Lit(Lit::Str(s)) => s.value.as_str().map(|v| v.to_owned()),
                     Expr::Lit(Lit::Num(n)) => Some(n.value.to_string()),
                     _ => None,
                 },
@@ -547,7 +546,7 @@ impl VisitMut for ControlFlowReplacer {
             let prop_name = match &member.prop {
                 MemberProp::Ident(prop) => Some(prop.sym.to_string()),
                 MemberProp::Computed(comp) => match &*comp.expr {
-                    Expr::Lit(Lit::Str(s)) => s.value.as_str().map(|v| v.to_string()),
+                    Expr::Lit(Lit::Str(s)) => s.value.as_str().map(|v| v.to_owned()),
                     Expr::Lit(Lit::Num(n)) => Some(n.value.to_string()),
                     _ => None,
                 },
@@ -626,28 +625,9 @@ impl ControlFlowDeflattener {
 
         let target = split_target.value.as_str()?;
         let sep = sep.value.as_str()?;
-        Some(target.split(sep).map(|s| s.to_string()).collect())
-    }
-}
-
-impl VisitMut for ControlFlowDeflattener {
-    fn visit_mut_script(&mut self, script: &mut Script) {
-        script.visit_mut_children_with(self);
-        self.process_statement_list(&mut script.body);
+        Some(target.split(sep).map(|s| s.to_owned()).collect())
     }
 
-    fn visit_mut_module(&mut self, module: &mut Module) {
-        module.visit_mut_children_with(self);
-        self.process_module_items(&mut module.body);
-    }
-
-    fn visit_mut_block_stmt(&mut self, block: &mut BlockStmt) {
-        block.visit_mut_children_with(self);
-        self.process_statement_list(&mut block.stmts);
-    }
-}
-
-impl ControlFlowDeflattener {
     fn process_statement_list(&self, stmts: &mut Vec<Stmt>) {
         let mut replacements: Vec<(usize, Vec<Stmt>)> = Vec::new();
         let mut remove_decl_indices: Vec<usize> = Vec::new();
@@ -715,8 +695,14 @@ impl ControlFlowDeflattener {
                         }
                     } else if binding.id.sym == index_id
                         && let Expr::Lit(Lit::Num(num)) = &**init
+                        && num.value.is_finite()
                     {
-                        start_idx = Some(num.value as i64);
+                        #[expect(
+                            clippy::as_conversions,
+                            reason = "JS numeric literals for indices use truncating conversion"
+                        )]
+                        let index = num.value as i64;
+                        start_idx = Some(index);
                         decls_to_remove.push(decl_idx);
                     }
                 }
@@ -738,10 +724,9 @@ impl ControlFlowDeflattener {
             let Some(start_idx) = start_idx else {
                 continue;
             };
-            if start_idx < 0 {
+            let Ok(start_idx) = usize::try_from(start_idx) else {
                 continue;
-            }
-            let start_idx = start_idx as usize;
+            };
             if start_idx >= shuffle_arr.len() {
                 continue;
             }
@@ -783,9 +768,11 @@ impl ControlFlowDeflattener {
         }
 
         for idx in remove_decl_indices.into_iter().rev() {
-            stmts[idx] = Stmt::Empty(EmptyStmt {
-                span: Span::default(),
-            });
+            if let Some(stmt) = stmts.get_mut(idx) {
+                *stmt = Stmt::Empty(EmptyStmt {
+                    span: Span::default(),
+                });
+            }
         }
 
         for (idx, nodes) in replacements.into_iter().rev() {
@@ -828,13 +815,30 @@ impl ControlFlowDeflattener {
     }
 }
 
+impl VisitMut for ControlFlowDeflattener {
+    fn visit_mut_script(&mut self, script: &mut Script) {
+        script.visit_mut_children_with(self);
+        self.process_statement_list(&mut script.body);
+    }
+
+    fn visit_mut_module(&mut self, module: &mut Module) {
+        module.visit_mut_children_with(self);
+        self.process_module_items(&mut module.body);
+    }
+
+    fn visit_mut_block_stmt(&mut self, block: &mut BlockStmt) {
+        block.visit_mut_children_with(self);
+        self.process_statement_list(&mut block.stmts);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Deobfuscator;
     use crate::deobfuscator::DeobfuscateOptions;
     use crate::transformers::Simplify;
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     fn deob_with_controlflow(code: &str) -> String {
         let deob = Deobfuscator::new();
@@ -849,34 +853,34 @@ mod tests {
     }
 
     #[test]
-    fn test_controlflow_new() {
+    fn controlflow_new() {
         let transformer = ControlFlow::new();
         assert_eq!(transformer.name(), "ControlFlow");
     }
 
     #[test]
-    fn test_controlflow_literal_replacement() {
+    fn controlflow_literal_replacement() {
         let code = r#"var _0x = { "ABcDe": "hello" }; console.log(_0x.ABcDe);"#;
         let result = deob_with_controlflow(code);
         assert!(result.contains("\"hello\""));
     }
 
     #[test]
-    fn test_controlflow_literal_replacement_computed() {
+    fn controlflow_literal_replacement_computed() {
         let code = r#"var _0x = { "ABcDe": "hello" }; console.log(_0x["ABcDe"]);"#;
         let result = deob_with_controlflow(code);
         assert!(result.contains("\"hello\""));
     }
 
     #[test]
-    fn test_controlflow_function_inline() {
+    fn controlflow_function_inline() {
         let code = r#"var _0x = { "ABcDe": function(a, b) { return a + b; } }; _0x.ABcDe(1, 2);"#;
         let result = deob_with_controlflow(code);
-        assert!(result.contains("3"));
+        assert!(result.contains('3'));
     }
 
     #[test]
-    fn test_controlflow_alias_replacement() {
+    fn controlflow_alias_replacement() {
         let code = r#"
 var _0xabcde = { "ABCDE": "hello", "FGhIj": function(a, b) { return a + b; } };
 var _alias = _0xabcde;
@@ -885,11 +889,11 @@ _alias.FGhIj(1, 2);
 "#;
         let result = deob_with_controlflow(code);
         assert!(result.contains("\"hello\""));
-        assert!(result.contains("3"));
+        assert!(result.contains('3'));
     }
 
     #[test]
-    fn test_populate_empty_objects() {
+    fn populate_empty_objects() {
         let code = r#"
 function test() {
     var obj = {};
@@ -907,7 +911,7 @@ function test() {
     }
 
     #[test]
-    fn test_controlflow_deflatten_switch() {
+    fn controlflow_deflatten_switch() {
         let code = r#"
 var _arr = "0|1|2".split("|");
 var _idx = 0;

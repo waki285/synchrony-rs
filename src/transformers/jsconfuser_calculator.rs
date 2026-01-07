@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 use swc_common::Span;
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
@@ -136,11 +136,22 @@ impl CalculatorFinder {
     /// Extract numeric value from expression (handles unary minus)
     #[must_use]
     fn get_numeric_value(expr: &Expr) -> Option<i64> {
+        fn coerce_to_i64(value: f64) -> Option<i64> {
+            (value.is_finite() && value.fract() == 0.0).then(|| {
+                #[expect(
+                    clippy::as_conversions,
+                    reason = "JS numeric literals are f64; conversion is guarded to integral values"
+                )]
+                let int_value = value as i64;
+                int_value
+            })
+        }
+
         match expr {
-            Expr::Lit(Lit::Num(n)) => Some(n.value as i64),
+            Expr::Lit(Lit::Num(n)) => coerce_to_i64(n.value),
             Expr::Unary(unary) if unary.op == UnaryOp::Minus => {
                 if let Expr::Lit(Lit::Num(n)) = &*unary.arg {
-                    Some(-(n.value as i64))
+                    coerce_to_i64(n.value).map(|value| -value)
                 } else {
                     None
                 }
@@ -170,7 +181,8 @@ impl CalculatorFinder {
         }
 
         // Must be a switch statement
-        let Stmt::Switch(switch_stmt) = stmts[0] else {
+        let stmt = stmts.first()?;
+        let Stmt::Switch(switch_stmt) = stmt else {
             return None;
         };
 
@@ -219,7 +231,8 @@ impl CalculatorFinder {
             }
 
             // Must be a return statement with binary expression
-            let Stmt::Return(ret_stmt) = non_empty[0] else {
+            let stmt = non_empty.first()?;
+            let Stmt::Return(ret_stmt) = stmt else {
                 return None;
             };
 
@@ -264,7 +277,7 @@ impl CalculatorFinder {
         }
 
         Some(CalcFunction {
-            identifier: fn_name.to_string(),
+            identifier: fn_name.to_owned(),
             operators,
             opcode_param_index,
         })
@@ -339,13 +352,10 @@ impl VisitMut for CalculatorReplacer {
 
             if let Some(calc_fn) = self.functions.get(&fn_name) {
                 // Get the opcode value
-                if call.args.len() <= calc_fn.opcode_param_index {
+                let Some(opcode_arg) = call.args.get(calc_fn.opcode_param_index) else {
                     return;
-                }
-
-                let opcode = CalculatorFinder::get_numeric_value(
-                    &call.args[calc_fn.opcode_param_index].expr,
-                );
+                };
+                let opcode = CalculatorFinder::get_numeric_value(&opcode_arg.expr);
 
                 if let Some(opcode_val) = opcode {
                     // Find matching operator
@@ -355,11 +365,12 @@ impl VisitMut for CalculatorReplacer {
                         .find(|o| o.test_value == opcode_val)
                     {
                         // Get left and right arguments
-                        if call.args.len() > op_case.lhs_index
-                            && call.args.len() > op_case.rhs_index
-                        {
-                            let left = call.args[op_case.lhs_index].expr.clone();
-                            let right = call.args[op_case.rhs_index].expr.clone();
+                        if let (Some(lhs), Some(rhs)) = (
+                            call.args.get(op_case.lhs_index),
+                            call.args.get(op_case.rhs_index),
+                        ) {
+                            let left = lhs.expr.clone();
+                            let right = rhs.expr.clone();
 
                             // Replace with binary expression
                             *expr = Expr::Bin(BinExpr {
@@ -381,7 +392,7 @@ mod tests {
     use super::*;
     use crate::Deobfuscator;
     use crate::deobfuscator::DeobfuscateOptions;
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     fn deob_with_calculator(code: &str) -> String {
         let deob = Deobfuscator::new();
@@ -393,14 +404,14 @@ mod tests {
     }
 
     #[test]
-    fn test_jsconfuser_calculator_new() {
+    fn jsconfuser_calculator_new() {
         let transformer = JSConfuserCalculator::new();
         assert_eq!(transformer.name(), "JSConfuserCalculator");
     }
 
     #[test]
-    fn test_calculator_basic() {
-        let code = r#"
+    fn calculator_basic() {
+        let code = r"
 function calc(op, a, b) {
     switch (op) {
         case 0: return a + b;
@@ -410,16 +421,16 @@ function calc(op, a, b) {
     }
 }
 var result = calc(0, 5, 3);
-"#;
+";
         let result = deob_with_calculator(code);
         // The calculator call should be replaced with direct operation
-        assert!(result.contains("5 + 3") || result.contains("8"));
+        assert!(result.contains("5 + 3") || result.contains('8'));
         assert!(!result.contains("calc(0"));
     }
 
     #[test]
-    fn test_calculator_negative_opcode() {
-        let code = r#"
+    fn calculator_negative_opcode() {
+        let code = r"
 function calc(op, a, b) {
     switch (op) {
         case -1: return a + b;
@@ -427,7 +438,7 @@ function calc(op, a, b) {
     }
 }
 var result = calc(-1, 10, 5);
-"#;
+";
         let result = deob_with_calculator(code);
         assert!(result.contains("10 + 5") || result.contains("15"));
         assert!(!result.contains("calc(-1"));

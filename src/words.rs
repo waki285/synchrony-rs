@@ -1967,27 +1967,43 @@ pub struct MersenneTwister {
 impl MersenneTwister {
     const N: usize = 624;
     const M: usize = 397;
+    const INIT_MULTIPLIER: u32 = 1_812_433_253;
     const MATRIX_A: u32 = 0x9908b0df;
     const UPPER_MASK: u32 = 0x80000000;
     const LOWER_MASK: u32 = 0x7fffffff;
+    const SHIFT_1: u32 = 1;
+    const SHIFT_7: u32 = 7;
+    const SHIFT_11: u32 = 11;
+    const SHIFT_15: u32 = 15;
+    const SHIFT_18: u32 = 18;
+    const ONE_F64: f64 = 1.0;
 
     #[must_use]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "Mersenne Twister indices are bounded by constants"
+    )]
     pub fn new(seed: u32) -> Self {
-        let mut mt = [0u32; 624];
+        let mut mt: [u32; 624] = [0; 624];
         mt[0] = seed;
         for i in 1..Self::N {
-            mt[i] = 1812433253u32
+            let i_u32 = u32::try_from(i).expect("mt index fits in u32");
+            mt[i] = Self::INIT_MULTIPLIER
                 .wrapping_mul(mt[i - 1] ^ (mt[i - 1] >> 30))
-                .wrapping_add(i as u32);
+                .wrapping_add(i_u32);
         }
         Self { mt, index: Self::N }
     }
 
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "Mersenne Twister indices are bounded by constants"
+    )]
     fn generate_numbers(&mut self) {
         for i in 0..Self::N {
             let y =
                 (self.mt[i] & Self::UPPER_MASK) | (self.mt[(i + 1) % Self::N] & Self::LOWER_MASK);
-            self.mt[i] = self.mt[(i + Self::M) % Self::N] ^ (y >> 1);
+            self.mt[i] = self.mt[(i + Self::M) % Self::N] ^ (y >> Self::SHIFT_1);
             if !y.is_multiple_of(2) {
                 self.mt[i] ^= Self::MATRIX_A;
             }
@@ -1995,6 +2011,10 @@ impl MersenneTwister {
     }
 
     #[must_use]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "Mersenne Twister indices are bounded by constants"
+    )]
     pub fn random_u32(&mut self) -> u32 {
         if self.index >= Self::N {
             self.generate_numbers();
@@ -2004,18 +2024,24 @@ impl MersenneTwister {
         let mut y = self.mt[self.index];
         self.index += 1;
 
-        y ^= y >> 11;
-        y ^= (y << 7) & 0x9d2c5680;
-        y ^= (y << 15) & 0xefc60000;
-        y ^= y >> 18;
+        y ^= y >> Self::SHIFT_11;
+        y ^= (y << Self::SHIFT_7) & 0x9d2c5680;
+        y ^= (y << Self::SHIFT_15) & 0xefc60000;
+        y ^= y >> Self::SHIFT_18;
 
         y
     }
 
     /// Returns a random f64 in [0, 1)
     #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "Mersenne Twister matches JS implementation using f64"
+    )]
     pub fn random(&mut self) -> f64 {
-        (self.random_u32() as f64) / (0xffffffff_u64 as f64 + 1.0)
+        let numerator = f64::from(self.random_u32());
+        let denominator = f64::from(u32::MAX) + Self::ONE_F64;
+        numerator / denominator
     }
 }
 
@@ -2029,9 +2055,17 @@ pub fn generate_random_words(mt: &mut MersenneTwister, length: usize) -> Vec<Str
     for i in 0..length {
         let min = i * word_count / length;
         let max = (i + 1) * word_count / length;
-        let rand = mt.random().mul_add((max - min) as f64, min as f64) as usize;
+        let range = max.saturating_sub(min);
+        let range_f64 = f64::from(u32::try_from(range).expect("word range fits in u32"));
+        let min_f64 = f64::from(u32::try_from(min).expect("word index fits in u32"));
+        let rand_f64 = mt.random().mul_add(range_f64, min_f64);
+        #[expect(
+            clippy::as_conversions,
+            reason = "Random index is derived from bounded word list size"
+        )]
+        let rand = rand_f64.floor() as usize;
 
-        let word = WORD_LIST[rand];
+        let word = WORD_LIST.get(rand).copied().unwrap_or_default();
         // Capitalize first letter
         let capitalized = capitalize_first(word);
         words.push(capitalized);
@@ -2043,9 +2077,13 @@ pub fn generate_random_words(mt: &mut MersenneTwister, length: usize) -> Vec<Str
 #[must_use]
 fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
-    chars
-        .next()
-        .map_or_else(String::new, |first| first.to_uppercase().collect::<String>() + chars.as_str())
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut result = String::new();
+    result.extend(first.to_uppercase());
+    result.push_str(chars.as_str());
+    result
 }
 
 #[cfg(test)]
@@ -2053,17 +2091,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_mersenne_twister_deterministic() {
+    fn mersenne_twister_deterministic() {
         let mut mt1 = MersenneTwister::new(12345);
         let mut mt2 = MersenneTwister::new(12345);
 
-        for _ in 0..100 {
+        let iterations: usize = 100;
+        for _ in 0..iterations {
             assert_eq!(mt1.random_u32(), mt2.random_u32());
         }
     }
 
     #[test]
-    fn test_generate_random_words() {
+    fn generate_random_words_works() {
         let mut mt = MersenneTwister::new(12345);
         let words = generate_random_words(&mut mt, 2);
 
@@ -2075,7 +2114,7 @@ mod tests {
     }
 
     #[test]
-    fn test_capitalize_first() {
+    fn capitalize_first_works() {
         assert_eq!(capitalize_first("hello"), "Hello");
         assert_eq!(capitalize_first("WORLD"), "WORLD");
         assert_eq!(capitalize_first("a"), "A");

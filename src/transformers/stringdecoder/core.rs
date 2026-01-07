@@ -1,7 +1,7 @@
 use std::collections::HashSet;
-use swc_common::{Globals, GLOBALS};
+use swc_common::{GLOBALS, Globals};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMutWith, VisitWith};
+use swc_ecma_visit::{VisitMutWith as _, VisitWith as _};
 
 use crate::context::{Context, StringArray, StringArrayType};
 use crate::error::Result;
@@ -19,7 +19,21 @@ use super::references::{FunctionReferenceFinder, VariableReferenceFinder};
 use super::replacer::{StringDecoderReplacer, remove_tainted_statements};
 use super::shift::{RotationIifeRemover, ShiftFinder, StringArrayRotator};
 
+const CLEANUP_PASSES: usize = 4;
+
 // Evaluate simple constant numeric expressions (used by rotations/offsets).
+#[expect(
+    clippy::as_conversions,
+    reason = "JS constant evaluation uses explicit integer casts"
+)]
+#[expect(
+    clippy::modulo_arithmetic,
+    reason = "JS `%` semantics are required for constant evaluation"
+)]
+#[expect(
+    clippy::option_if_let_else,
+    reason = "Readable branching for hex vs decimal parsing"
+)]
 pub(super) fn eval_const_i64(expr: &Expr) -> Option<i64> {
     match expr {
         Expr::Lit(Lit::Num(n)) => Some(n.value as i64),
@@ -29,18 +43,16 @@ pub(super) fn eval_const_i64(expr: &Expr) -> Option<i64> {
             if trimmed.is_empty() {
                 return None;
             }
-            let mut sign = 1i64;
+            let mut sign: i64 = 1;
             let mut rest = trimmed;
-            if let Some(first) = rest.chars().next() {
-                if first == '-' {
-                    sign = -1;
-                    rest = &rest[1..];
-                } else if first == '+' {
-                    rest = &rest[1..];
-                }
+            if let Some(stripped) = rest.strip_prefix('-') {
+                sign = -1;
+                rest = stripped;
+            } else if let Some(stripped) = rest.strip_prefix('+') {
+                rest = stripped;
             }
-            if rest.starts_with("0x") || rest.starts_with("0X") {
-                i64::from_str_radix(&rest[2..], 16).ok().map(|v| v * sign)
+            if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+                i64::from_str_radix(hex, 16).ok().map(|v| v * sign)
             } else {
                 rest.parse::<i64>().ok().map(|v| v * sign)
             }
@@ -93,7 +105,10 @@ pub(super) fn eval_const_i64(expr: &Expr) -> Option<i64> {
             }
         }
         Expr::Paren(paren) => eval_const_i64(&paren.expr),
-        Expr::Seq(seq) => seq.exprs.last().and_then(|e| eval_const_i64(e)),
+        Expr::Seq(seq) => {
+            let e = seq.exprs.last()?;
+            eval_const_i64(e)
+        }
         _ => None,
     }
 }
@@ -112,10 +127,18 @@ impl StringDecoder {
 
     /// Base64 decode with custom charset to bytes
     #[must_use]
+    #[expect(
+        clippy::as_conversions,
+        reason = "Base64 decoder uses index and byte casts"
+    )]
+    #[expect(
+        clippy::default_numeric_fallback,
+        reason = "Base64 decoder relies on well-known literal widths"
+    )]
     fn base64_decode_bytes(charset: &str, input: &str) -> Option<Vec<u8>> {
         let mut output = Vec::new();
-        let mut buffer = 0u32;
-        let mut bits_collected = 0u32;
+        let mut buffer: u32 = 0;
+        let mut bits_collected: u32 = 0;
 
         for ch in input.chars() {
             // Skip padding character '='
@@ -163,17 +186,22 @@ impl StringDecoder {
 
     /// Base91 decode with custom charset to bytes
     #[must_use]
+    #[expect(
+        clippy::as_conversions,
+        reason = "Base91 decoder uses index and byte casts"
+    )]
+    #[expect(
+        clippy::default_numeric_fallback,
+        reason = "Base91 decoder relies on well-known literal widths"
+    )]
     fn base91_decode_bytes(charset: &str, input: &str) -> Vec<u8> {
         let mut output = Vec::new();
-        let mut buffer = 0u32;
-        let mut bits_collected = 0u32;
-        let mut value = -1i32;
+        let mut buffer: u32 = 0;
+        let mut bits_collected: u32 = 0;
+        let mut value: i32 = -1;
 
         for ch in input.chars() {
-            let Some(idx) = charset
-                .find(ch)
-                .and_then(|v| i32::try_from(v).ok())
-            else {
+            let Some(idx) = charset.find(ch).and_then(|v| i32::try_from(v).ok()) else {
                 continue;
             };
 
@@ -217,6 +245,11 @@ impl StringDecoder {
 
     /// RC4 decrypt
     #[must_use]
+    #[expect(clippy::indexing_slicing, reason = "RC4 uses fixed 256-byte state")]
+    #[expect(
+        clippy::as_conversions,
+        reason = "RC4 index arithmetic uses u8-to-usize casts"
+    )]
     pub(super) fn rc4_decrypt(charset: &str, input: &str, key: &str) -> Option<String> {
         // First decode from base64
         let decoded = Self::base64_decode(charset, input)?;
@@ -228,7 +261,7 @@ impl StringDecoder {
 
         // RC4 key scheduling
         let mut s: Vec<u8> = (0..=255).collect();
-        let mut j = 0u8;
+        let mut j: u8 = 0;
 
         for i in 0..256 {
             let key_unit = key_units[i % key_units.len()] & 0xFF;
@@ -237,7 +270,7 @@ impl StringDecoder {
         }
 
         // RC4 decryption
-        let mut i = 0u8;
+        let mut i: u8 = 0;
         j = 0;
         let mut output: Vec<u16> = Vec::with_capacity(input_units.len());
 
@@ -275,6 +308,10 @@ impl Transformer for StringDecoder {
         }
 
         // Store found arrays in context
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Logging order for detected arrays is not significant"
+        )]
         for (name, (array_type, strings)) in array_finder.arrays {
             crate::log_info!(
                 "Found string array '{}' with {} strings",
@@ -337,7 +374,7 @@ impl Transformer for StringDecoder {
             .map(|r| r.identifier.clone())
             .collect();
 
-        let mut rounds = 0usize;
+        let mut rounds: usize = 0;
         loop {
             rounds += 1;
             let mut fn_ref_finder = FunctionReferenceFinder::new(
@@ -423,6 +460,10 @@ impl Transformer for StringDecoder {
             for reference in &context.string_decoder_references {
                 candidates.insert(reference.identifier.clone());
             }
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "Helper name iteration order is not significant"
+            )]
             for helper in &helper_names {
                 candidates.insert(helper.clone());
             }
@@ -435,7 +476,7 @@ impl Transformer for StringDecoder {
 
                     scope_data = GLOBALS.set(&Globals::default(), || analyze(&context.ast));
 
-                    for _ in 0..4 {
+                    for _ in 0..CLEANUP_PASSES {
                         let mut remover = UnusedObfuscatedRemover::new(&scope_data);
                         context.ast.visit_mut_with(&mut remover);
                         if !remover.changed {

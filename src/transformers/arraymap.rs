@@ -18,11 +18,13 @@
 use std::collections::HashMap;
 use swc_common::Span;
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
 use crate::transformers::Transformer;
+
+const ZERO_F64: f64 = 0.0;
 
 /// `ArrayMap` transformer.
 ///
@@ -130,7 +132,7 @@ impl ArrayMapVisitor {
                     Expr::Lit(Lit::Null(_)) => values.push(ArrayValue::Null),
                     Expr::Lit(Lit::Str(s)) => {
                         if let Some(v) = s.value.as_str() {
-                            values.push(ArrayValue::String(v.to_string()));
+                            values.push(ArrayValue::String(v.to_owned()));
                         } else {
                             return None;
                         }
@@ -143,6 +145,10 @@ impl ArrayMapVisitor {
                         ..
                     }) => {
                         if let Expr::Lit(Lit::Num(n)) = &**arg {
+                            #[expect(
+                                clippy::float_arithmetic,
+                                reason = "JS numeric literals use f64 semantics"
+                            )]
                             values.push(ArrayValue::Number(-n.value));
                         } else {
                             return None;
@@ -158,28 +164,7 @@ impl ArrayMapVisitor {
 
         Some(values)
     }
-}
 
-impl VisitMut for ArrayMapVisitor {
-    fn visit_mut_function(&mut self, func: &mut Function) {
-        // First visit children
-        func.visit_mut_children_with(self);
-
-        if let Some(body) = &mut func.body {
-            self.process_block(&mut body.stmts);
-        }
-    }
-
-    fn visit_mut_arrow_expr(&mut self, arrow: &mut ArrowExpr) {
-        arrow.visit_mut_children_with(self);
-
-        if let BlockStmtOrExpr::BlockStmt(block) = &mut *arrow.body {
-            self.process_block(&mut block.stmts);
-        }
-    }
-}
-
-impl ArrayMapVisitor {
     fn process_block(&self, stmts: &mut Vec<Stmt>) {
         // Find array declarations at the start of the block
         let mut array_maps: HashMap<String, Vec<ArrayValue>> = HashMap::new();
@@ -216,13 +201,34 @@ impl ArrayMapVisitor {
 
         // Remove the array declarations (in reverse order to maintain indices)
         for idx in decls_to_remove.into_iter().rev() {
-            stmts[idx] = Stmt::Empty(EmptyStmt {
-                span: Span::default(),
-            });
+            if let Some(stmt) = stmts.get_mut(idx) {
+                *stmt = Stmt::Empty(EmptyStmt {
+                    span: Span::default(),
+                });
+            }
         }
 
         // Clean up empty statements
         stmts.retain(|s| !matches!(s, Stmt::Empty(_)));
+    }
+}
+
+impl VisitMut for ArrayMapVisitor {
+    fn visit_mut_function(&mut self, func: &mut Function) {
+        // First visit children
+        func.visit_mut_children_with(self);
+
+        if let Some(body) = &mut func.body {
+            self.process_block(&mut body.stmts);
+        }
+    }
+
+    fn visit_mut_arrow_expr(&mut self, arrow: &mut ArrowExpr) {
+        arrow.visit_mut_children_with(self);
+
+        if let BlockStmtOrExpr::BlockStmt(block) = &mut *arrow.body {
+            self.process_block(&mut block.stmts);
+        }
     }
 }
 
@@ -243,8 +249,16 @@ impl VisitMut for ArrayAccessReplacer<'_> {
                 // Get the index
                 let index = match &member.prop {
                     MemberProp::Computed(computed) => {
-                        if let Expr::Lit(Lit::Num(n)) = &*computed.expr {
-                            Some(n.value as usize)
+                        if let Expr::Lit(Lit::Num(n)) = &*computed.expr
+                            && n.value.is_finite()
+                            && n.value >= ZERO_F64
+                        {
+                            #[expect(
+                                clippy::as_conversions,
+                                reason = "JS array access from numeric literals uses truncating conversion"
+                            )]
+                            let idx = n.value as usize;
+                            Some(idx)
                         } else {
                             None
                         }
@@ -253,8 +267,8 @@ impl VisitMut for ArrayAccessReplacer<'_> {
                 };
 
                 if let Some(idx) = index
-                    && idx < values.len()
-                    && let Some(new_expr) = values[idx].to_expr()
+                    && let Some(value) = values.get(idx)
+                    && let Some(new_expr) = value.to_expr()
                 {
                     *expr = new_expr;
                 }
@@ -268,7 +282,7 @@ mod tests {
     use super::*;
     use crate::Deobfuscator;
     use crate::deobfuscator::DeobfuscateOptions;
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     fn deob_with_arraymap(code: &str) -> String {
         let deob = Deobfuscator::new();
@@ -280,13 +294,13 @@ mod tests {
     }
 
     #[test]
-    fn test_arraymap_new() {
+    fn arraymap_new() {
         let transformer = ArrayMap::new();
         assert_eq!(transformer.name(), "ArrayMap");
     }
 
     #[test]
-    fn test_arraymap_basic() {
+    fn arraymap_basic() {
         let code = r#"
 function f() {
     var arr = [null, "hello", 42];
@@ -301,7 +315,7 @@ function f() {
     }
 
     #[test]
-    fn test_arraymap_with_booleans() {
+    fn arraymap_with_booleans() {
         let code = r#"
 function f() {
     var arr = [null, true, false, "test"];
@@ -316,23 +330,23 @@ function f() {
     }
 
     #[test]
-    fn test_arraymap_negative_numbers() {
-        let code = r#"
+    fn arraymap_negative_numbers() {
+        let code = r"
 function f() {
     var arr = [null, 5, 10];
     return arr[1] + arr[2];
 }
-"#;
+";
         let result = deob_with_arraymap(code);
         // Check that array values are inlined
-        assert!(result.contains("5"));
+        assert!(result.contains('5'));
         assert!(result.contains("10"));
         assert!(!result.contains("arr[1]"));
         assert!(!result.contains("arr[2]"));
     }
 
     #[test]
-    fn test_arraymap_arrow_function() {
+    fn arraymap_arrow_function() {
         // Arrow function with block body
         let code = r#"
 function outer() {
@@ -352,7 +366,7 @@ function outer() {
     }
 
     #[test]
-    fn test_arraymap_not_starting_with_null() {
+    fn arraymap_not_starting_with_null() {
         // Arrays not starting with null should NOT be replaced
         let code = r#"
 function f() {
@@ -366,7 +380,7 @@ function f() {
     }
 
     #[test]
-    fn test_arraymap_multiple_arrays() {
+    fn arraymap_multiple_arrays() {
         let code = r#"
 function f() {
     var a = [null, "first"];
@@ -379,8 +393,8 @@ function f() {
     }
 
     #[test]
-    fn test_array_value_to_expr() {
-        let val = ArrayValue::String("test".to_string());
+    fn array_value_to_expr() {
+        let val = ArrayValue::String("test".to_owned());
         let expr = val.to_expr();
         assert!(expr.is_some());
 

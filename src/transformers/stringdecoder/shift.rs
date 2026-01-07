@@ -1,10 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::{DecoderFunction, DecoderFunctionType, DecoderReference, StringArray};
 
 use super::core::{StringDecoder, eval_const_i64};
+
+const ZERO_F64: f64 = 0.0;
+const ROTATION_EPSILON: f64 = 1e-6;
 
 pub(super) struct ShiftFinder<'a> {
     pub(super) rotations: Vec<(String, usize)>,
@@ -118,7 +121,10 @@ impl RotationIifeRemover {
         match expr {
             Expr::Call(call) => Some(call),
             Expr::Paren(paren) => Self::extract_call_expr(&paren.expr),
-            Expr::Seq(seq) => seq.exprs.last().and_then(|e| Self::extract_call_expr(e)),
+            Expr::Seq(seq) => {
+                let e = seq.exprs.last()?;
+                Self::extract_call_expr(e)
+            }
             _ => None,
         }
     }
@@ -127,7 +133,10 @@ impl RotationIifeRemover {
         match expr {
             Expr::Fn(fn_expr) => Some(fn_expr),
             Expr::Paren(paren) => Self::extract_fn_expr(&paren.expr),
-            Expr::Seq(seq) => seq.exprs.last().and_then(|e| Self::extract_fn_expr(e)),
+            Expr::Seq(seq) => {
+                let e = seq.exprs.last()?;
+                Self::extract_fn_expr(e)
+            }
             _ => None,
         }
     }
@@ -216,7 +225,10 @@ impl<'a> ShiftFinder<'a> {
         if call.args.len() != 1 {
             return false;
         }
-        let Expr::Call(shift_call) = &*call.args[0].expr else {
+        let Some(arg) = call.args.first() else {
+            return false;
+        };
+        let Expr::Call(shift_call) = &*arg.expr else {
             return false;
         };
         let Callee::Expr(shift_callee) = &shift_call.callee else {
@@ -285,7 +297,10 @@ impl<'a> ShiftFinder<'a> {
         match expr {
             Expr::Call(call) => Some(call),
             Expr::Paren(paren) => Self::extract_call_expr(&paren.expr),
-            Expr::Seq(seq) => seq.exprs.last().and_then(|e| Self::extract_call_expr(e)),
+            Expr::Seq(seq) => {
+                let e = seq.exprs.last()?;
+                Self::extract_call_expr(e)
+            }
             _ => None,
         }
     }
@@ -296,7 +311,10 @@ impl<'a> ShiftFinder<'a> {
         match expr {
             Expr::Fn(fn_expr) => Some(fn_expr),
             Expr::Paren(paren) => Self::extract_fn_expr(&paren.expr),
-            Expr::Seq(seq) => seq.exprs.last().and_then(|e| Self::extract_fn_expr(e)),
+            Expr::Seq(seq) => {
+                let e = seq.exprs.last()?;
+                Self::extract_fn_expr(e)
+            }
             _ => None,
         }
     }
@@ -304,21 +322,18 @@ impl<'a> ShiftFinder<'a> {
     /// Extract break condition number from IIFE call
     #[must_use]
     fn extract_break_condition(call: &CallExpr) -> Option<i64> {
-        if call.args.len() >= 2 {
-            return eval_const_i64(&call.args[1].expr);
-        }
-        None
+        let arg = call.args.get(1)?;
+        eval_const_i64(&arg.expr)
     }
 
     /// Extract array name from IIFE arguments
     #[must_use]
     fn extract_array_name(call: &CallExpr) -> Option<String> {
-        if !call.args.is_empty()
-            && let Expr::Ident(ident) = &*call.args[0].expr
-        {
-            return Some(ident.sym.to_string());
-        }
-        None
+        let arg = call.args.first()?;
+        let Expr::Ident(ident) = &*arg.expr else {
+            return None;
+        };
+        Some(ident.sym.to_string())
     }
 
     /// Extract the binary expression (parseInt chain) from try block
@@ -386,6 +401,14 @@ impl<'a> ShiftFinder<'a> {
 
     /// Calculate the rotation count by simulating the push/shift loop
     #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "Rotation detection mirrors JS numeric evaluation"
+    )]
+    #[expect(
+        clippy::as_conversions,
+        reason = "Break condition comparisons convert JS numbers to f64"
+    )]
     fn calc_shift(
         &self,
         break_condition: i64,
@@ -406,7 +429,7 @@ impl<'a> ShiftFinder<'a> {
         for iteration in 0..max_iterations {
             // Try to evaluate the parseInt chain with current array order
             if let Some(result) = self.evaluate_parse_int_chain(parse_int_chain, &strings)
-                && (result - target).abs() < 1e-6
+                && (result - target).abs() < ROTATION_EPSILON
             {
                 return Some(iteration);
             }
@@ -423,6 +446,18 @@ impl<'a> ShiftFinder<'a> {
 
     /// Evaluate a parseInt chain expression
     #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "JS parseInt chains use f64 arithmetic"
+    )]
+    #[expect(
+        clippy::modulo_arithmetic,
+        reason = "JS `%` semantics are required for parseInt chains"
+    )]
+    #[expect(
+        clippy::as_conversions,
+        reason = "JS bitwise operators coerce via 32-bit integer casts"
+    )]
     fn evaluate_parse_int_chain(&self, expr: &Expr, rotated_strings: &[String]) -> Option<f64> {
         match expr {
             Expr::Lit(Lit::Num(n)) => Some(n.value),
@@ -440,13 +475,13 @@ impl<'a> ShiftFinder<'a> {
                     BinaryOp::Sub => left - right,
                     BinaryOp::Mul => left * right,
                     BinaryOp::Div => {
-                        if right == 0.0 {
+                        if right == ZERO_F64 {
                             return None;
                         }
                         left / right
                     }
                     BinaryOp::Mod => {
-                        if right == 0.0 {
+                        if right == ZERO_F64 {
                             return None;
                         }
                         left % right
@@ -465,11 +500,10 @@ impl<'a> ShiftFinder<'a> {
                 if let Callee::Expr(callee) = &call.callee
                     && let Expr::Ident(ident) = &**callee
                     && ident.sym == "parseInt"
-                    && !call.args.is_empty()
+                    && let Some(arg) = call.args.first()
                 {
                     // Get the decoded string and parse as int
-                    let decoded =
-                        self.evaluate_decoder_call(&call.args[0].expr, rotated_strings)?;
+                    let decoded = self.evaluate_decoder_call(&arg.expr, rotated_strings)?;
                     return Self::parse_int_like(&decoded).map(|v| v as f64);
                 }
                 None
@@ -491,45 +525,41 @@ impl<'a> ShiftFinder<'a> {
                         self.resolve_decoder(&func_name)?;
 
                     // Get the index argument
-                    if call.args.len() <= index_argument {
-                        return None;
-                    }
-
-                    let index = self.get_numeric_arg(&call.args[index_argument].expr)?;
-                    let final_index = (index + decoder.offset + extra_offset) as usize;
+                    let index_arg = call.args.get(index_argument)?;
+                    let index = self.get_numeric_arg(&index_arg.expr)?;
+                    let final_index = i64::from(index)
+                        .checked_add(i64::from(decoder.offset))?
+                        .checked_add(i64::from(extra_offset))?;
+                    let final_index = usize::try_from(final_index).ok()?;
 
                     // Get from rotated strings
-                    if final_index < rotated_strings.len() {
-                        let encoded = &rotated_strings[final_index];
+                    let encoded = rotated_strings.get(final_index)?;
 
-                        // Decode based on type
-                        match decoder.decoder_type {
-                            DecoderFunctionType::Simple => Some(encoded.clone()),
-                            DecoderFunctionType::Base64 => {
-                                let charset = decoder.charset.as_deref()
-                                    .unwrap_or("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=");
-                                StringDecoder::base64_decode(charset, encoded)
-                            }
-                            DecoderFunctionType::Rc4 => {
-                                // RC4 needs a key from the second argument
-                                if call.args.len() > key_argument
-                                    && let Expr::Lit(Lit::Str(key_str)) =
-                                        &*call.args[key_argument].expr
-                                    && let Some(key) = key_str.value.as_str()
-                                {
-                                    let charset = decoder.charset.as_deref()
-                                                .unwrap_or("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=");
-                                    return StringDecoder::rc4_decrypt(charset, encoded, key);
-                                }
-                                None
-                            }
-                            DecoderFunctionType::Base91 => {
-                                let charset = decoder.charset.as_ref()?;
-                                StringDecoder::base91_decode(charset, encoded)
-                            }
+                    // Decode based on type
+                    match decoder.decoder_type {
+                        DecoderFunctionType::Simple => Some(encoded.clone()),
+                        DecoderFunctionType::Base64 => {
+                            let charset = decoder.charset.as_deref().unwrap_or(
+                                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",
+                            );
+                            StringDecoder::base64_decode(charset, encoded)
                         }
-                    } else {
-                        None
+                        DecoderFunctionType::Rc4 => {
+                            // RC4 needs a key from the second argument
+                            let key_arg = call.args.get(key_argument)?;
+                            let Expr::Lit(Lit::Str(key_str)) = &*key_arg.expr else {
+                                return None;
+                            };
+                            let key = key_str.value.as_str()?;
+                            let charset = decoder.charset.as_deref().unwrap_or(
+                                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",
+                            );
+                            StringDecoder::rc4_decrypt(charset, encoded, key)
+                        }
+                        DecoderFunctionType::Base91 => {
+                            let charset = decoder.charset.as_ref()?;
+                            StringDecoder::base91_decode(charset, encoded)
+                        }
                     }
                 } else {
                     None
@@ -550,7 +580,7 @@ impl<'a> ShiftFinder<'a> {
         }
 
         let mut chars = trimmed.chars().peekable();
-        let mut sign = 1i64;
+        let mut sign: i64 = 1;
 
         if let Some(&c) = chars.peek() {
             if c == '-' {
@@ -562,11 +592,15 @@ impl<'a> ShiftFinder<'a> {
         }
 
         let mut rest: String = chars.collect();
-        let mut radix = 10u32;
+        let mut radix: u32 = 10;
 
         if rest.starts_with("0x") || rest.starts_with("0X") {
             radix = 16;
-            rest = rest[2..].to_string();
+            rest = rest
+                .strip_prefix("0x")
+                .or_else(|| rest.strip_prefix("0X"))
+                .unwrap_or(&rest)
+                .to_owned();
         }
 
         let digits: String = rest
@@ -593,8 +627,8 @@ impl<'a> ShiftFinder<'a> {
             return Some((decoder, 0, decoder.index_argument, decoder.key_argument));
         }
 
-        let mut current_name = name.to_string();
-        let mut total_offset = 0i32;
+        let mut current_name = name.to_owned();
+        let mut total_offset: i32 = 0;
         let mut index_argument = None;
         let mut key_argument = None;
         let mut visited = Vec::new();
@@ -644,7 +678,8 @@ impl<'a> ShiftFinder<'a> {
     /// Extract numeric value from expression
     #[must_use]
     fn get_numeric_arg(&self, expr: &Expr) -> Option<i32> {
-        eval_const_i64(expr).map(|v| v as i32)
+        let v = eval_const_i64(expr)?;
+        i32::try_from(v).ok()
     }
 }
 

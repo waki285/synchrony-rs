@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use swc_ecma_ast::*;
-use swc_ecma_visit::{Visit, VisitWith};
+use swc_ecma_visit::{Visit, VisitWith as _};
 
 use crate::context::DecoderFunctionType;
 
@@ -43,7 +43,7 @@ impl DecoderHelperFinder {
                         && let Some(value) = s.value.as_str()
                         && value.len() == 91
                     {
-                        candidates.push((binding.id.sym.to_string(), value.to_string()));
+                        candidates.push((binding.id.sym.to_string(), value.to_owned()));
                     }
                 }
             }
@@ -217,7 +217,7 @@ impl InlineBase91Finder {
             && let Some(value) = s.value.as_str()
             && value.len() == 91
         {
-            self.found = Some(value.to_string());
+            self.found = Some(value.to_owned());
         }
     }
 }

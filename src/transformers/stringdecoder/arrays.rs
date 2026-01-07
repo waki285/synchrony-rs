@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::StringArrayType;
 
@@ -25,7 +25,7 @@ impl StringArrayFinder {
                 Some(ExprOrSpread { expr, spread: None }) => {
                     if let Expr::Lit(Lit::Str(s)) = &**expr {
                         if let Some(v) = s.value.as_str() {
-                            strings.push(v.to_string());
+                            strings.push(v.to_owned());
                         } else {
                             return None;
                         }
@@ -89,11 +89,15 @@ impl VisitMut for StringArrayFinder {
                 return;
             }
 
+            let [first, second, third] = stmts.as_slice() else {
+                return;
+            };
+
             // First statement: var declaration with array
-            let array_strings = match &stmts[0] {
+            let array_strings = match first {
                 Stmt::Decl(Decl::Var(var_decl)) if var_decl.decls.len() == 1 => {
-                    let decl = &var_decl.decls[0];
-                    decl.init.as_ref().and_then(|init| {
+                    var_decl.decls.first().and_then(|decl| {
+                        let init = decl.init.as_ref()?;
                         if let Expr::Array(arr) = &**init {
                             Self::extract_string_array(arr)
                         } else {
@@ -109,7 +113,7 @@ impl VisitMut for StringArrayFinder {
             };
 
             // Second statement: assignment expression _0x1234 = function() { return arr; }
-            let is_valid_assignment = match &stmts[1] {
+            let is_valid_assignment = match second {
                 Stmt::Expr(expr_stmt) => {
                     if let Expr::Assign(assign) = &*expr_stmt.expr {
                         if let AssignTarget::Simple(SimpleAssignTarget::Ident(target)) =
@@ -131,7 +135,7 @@ impl VisitMut for StringArrayFinder {
             }
 
             // Third statement: return statement
-            let is_return = matches!(&stmts[2], Stmt::Return(_));
+            let is_return = matches!(third, Stmt::Return(_));
 
             if is_return {
                 self.arrays
@@ -176,6 +180,10 @@ impl StringArrayDeclarationRemover {
         let mut variable_arrays = HashSet::new();
         let mut function_arrays = HashSet::new();
 
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Array registration order is not significant"
+        )]
         for (name, (array_type, _)) in arrays {
             match array_type {
                 StringArrayType::Array => {

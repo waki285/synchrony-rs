@@ -7,15 +7,25 @@
 //! - Simplifying comparison expressions
 //! - Converting single statements to blocks
 
+use core::mem;
 use std::collections::{HashMap, HashSet};
 
 use swc_common::Span;
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
 use crate::transformers::Transformer;
+
+const ZERO_F64: f64 = 0.0;
+const ONE_F64: f64 = 1.0;
+const NEG_ONE_F64: f64 = -1.0;
+const RADIX_DEFAULT: i32 = 0;
+const RADIX_DEC: i32 = 10;
+const RADIX_HEX: i32 = 16;
+const RADIX_MIN: i32 = 2;
+const RADIX_MAX: i32 = 36;
 
 /// Simplify transformer.
 ///
@@ -93,13 +103,17 @@ impl SimplifyVisitor {
 
     /// Evaluate a binary math operation
     #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "JS constant folding uses f64 arithmetic"
+    )]
     const fn eval_math(left: f64, op: BinaryOp, right: f64) -> Option<f64> {
         let result = match op {
             BinaryOp::Add => left + right,
             BinaryOp::Sub => left - right,
             BinaryOp::Mul => left * right,
             BinaryOp::Div => {
-                if right == 0.0 {
+                if right == ZERO_F64 {
                     return None;
                 }
                 left / right
@@ -160,13 +174,17 @@ impl SimplifyVisitor {
     #[must_use]
     fn get_string_value(lit: &Lit) -> Option<String> {
         match lit {
-            Lit::Str(s) => s.value.as_str().map(|s| s.to_string()),
+            Lit::Str(s) => s.value.as_str().map(|s| s.to_owned()),
             _ => None,
         }
     }
 
     /// Extract a numeric value from an expression (handles unary minus)
     #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "JS numeric literal negation uses f64"
+    )]
     fn get_expr_numeric_value(expr: &Expr) -> Option<f64> {
         match expr {
             Expr::Lit(lit) => Self::get_numeric_value(lit),
@@ -187,8 +205,12 @@ impl SimplifyVisitor {
 
     /// Create a number literal expression
     #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "JS numeric literal negation uses f64"
+    )]
     fn create_number_lit(value: f64) -> Expr {
-        if value < 0.0 {
+        if value < ZERO_F64 {
             Expr::Unary(UnaryExpr {
                 span: Span::default(),
                 op: UnaryOp::Minus,
@@ -226,6 +248,25 @@ impl SimplifyVisitor {
         }))
     }
 
+    #[must_use]
+    fn number_to_i32(value: f64) -> Option<i32> {
+        (value.is_finite() && value.fract() == ZERO_F64).then(|| {
+            #[expect(
+                clippy::as_conversions,
+                reason = "JS numeric literals are f64; conversion is guarded to integral values"
+            )]
+            let int_value = value as i32;
+            int_value
+        })
+    }
+
+    #[must_use]
+    const fn i64_to_f64(value: i64) -> f64 {
+        #[expect(clippy::as_conversions, reason = "JS numeric conversions use f64")]
+        let float_value = value as f64;
+        float_value
+    }
+
     fn normalize_string_raw(s: &mut Str) {
         let Some(raw) = &s.raw else {
             return;
@@ -242,6 +283,7 @@ impl SimplifyVisitor {
     }
 
     #[must_use]
+    #[expect(clippy::float_arithmetic, reason = "JS parseInt uses f64 arithmetic")]
     fn parse_int_like(input: &str, radix: Option<i32>) -> Option<f64> {
         let trimmed = input.trim_start();
         if trimmed.is_empty() {
@@ -249,40 +291,45 @@ impl SimplifyVisitor {
         }
 
         let mut rest = trimmed;
-        let mut sign = 1.0;
+        let mut sign = ONE_F64;
         if let Some(stripped) = rest.strip_prefix('-') {
-            sign = -1.0;
+            sign = NEG_ONE_F64;
             rest = stripped;
         } else if let Some(stripped) = rest.strip_prefix('+') {
             rest = stripped;
         }
 
-        let mut radix = radix.unwrap_or(0);
-        if radix == 0 {
-            if rest.starts_with("0x") || rest.starts_with("0X") {
-                radix = 16;
-                rest = &rest[2..];
+        let mut radix = radix.unwrap_or(RADIX_DEFAULT);
+        if radix == RADIX_DEFAULT {
+            if let Some(stripped) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
+                radix = RADIX_HEX;
+                rest = stripped;
             } else {
-                radix = 10;
+                radix = RADIX_DEC;
             }
-        } else if radix == 16 && (rest.starts_with("0x") || rest.starts_with("0X")) {
-            rest = &rest[2..];
+        } else if radix == RADIX_HEX {
+            rest = rest
+                .strip_prefix("0x")
+                .or_else(|| rest.strip_prefix("0X"))
+                .unwrap_or(rest);
         }
 
-        if !(2..=36).contains(&radix) {
+        if !(RADIX_MIN..=RADIX_MAX).contains(&radix) {
             return None;
         }
 
-        let mut value = 0.0;
+        let mut value = ZERO_F64;
         let mut any = false;
-        let radix_u32 = radix as u32;
+        let radix_u32 = u32::try_from(radix).ok()?;
+        let radix_f64 = f64::from(radix_u32);
+        let max_digit = u32::try_from(RADIX_MAX).ok()?;
         for ch in rest.chars() {
-            let digit = match ch.to_digit(36) {
-                Some(d) if d < radix_u32 => d as f64,
+            let digit = match ch.to_digit(max_digit) {
+                Some(d) if d < radix_u32 => f64::from(d),
                 _ => break,
             };
             any = true;
-            value = value * (radix as f64) + digit;
+            value = value.mul_add(radix_f64, digit);
         }
 
         if !any {
@@ -323,20 +370,14 @@ impl VisitMut for SimplifyVisitor {
                 if let Callee::Expr(callee) = &call.callee
                     && let Expr::Ident(ident) = &**callee
                     && ident.sym == "parseInt"
-                    && !call.args.is_empty()
-                    && let Expr::Lit(Lit::Str(s)) = &*call.args[0].expr
+                    && let Some(arg) = call.args.first()
+                    && let Expr::Lit(Lit::Str(s)) = &*arg.expr
                     && let Some(text) = s.value.as_str()
                 {
-                    let radix = if call.args.len() >= 2 {
-                        if let Expr::Lit(Lit::Num(n)) = &*call.args[1].expr {
-                            let r = n.value as i32;
-                            Some(r)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
+                    let radix = call.args.get(1).and_then(|arg| match &*arg.expr {
+                        Expr::Lit(Lit::Num(n)) => Self::number_to_i32(n.value),
+                        _ => None,
+                    });
                     if let Some(num) = Self::parse_int_like(text, radix)
                         && num.is_finite()
                     {
@@ -442,14 +483,15 @@ impl VisitMut for SimplifyVisitor {
                     UnaryOp::Bang => {
                         match &*unary.arg {
                             // !0 -> true, !1 -> false
-                            Expr::Lit(Lit::Num(n)) => {
+                            Expr::Lit(Lit::Num(n)) =>
+                            {
                                 #[expect(
-                                    clippy::float_cmp,
+                                    clippy::float_cmp_const,
                                     reason = "JS unary ! comparisons use exact numeric literals"
                                 )]
-                                if n.value == 0.0 {
+                                if n.value == ZERO_F64 {
                                     *expr = Self::create_bool_lit(true);
-                                } else if n.value == 1.0 {
+                                } else if n.value == ONE_F64 {
                                     *expr = Self::create_bool_lit(false);
                                 }
                             }
@@ -468,11 +510,15 @@ impl VisitMut for SimplifyVisitor {
                     UnaryOp::Minus => {
                         if let Expr::Lit(Lit::Str(s)) = &*unary.arg
                             && let Some(str_val) = s.value.as_str()
-                            && (str_val.starts_with("0x") || str_val.starts_with("0X"))
+                            && let Some(hex) = str_val
+                                .strip_prefix("0x")
+                                .or_else(|| str_val.strip_prefix("0X"))
                         {
                             // Parse hex string
-                            if let Ok(num) = i64::from_str_radix(&str_val[2..], 16) {
-                                *expr = Self::create_number_lit(-(num as f64));
+                            if let Ok(num) = i64::from_str_radix(hex, 16)
+                                && let Some(neg) = num.checked_neg()
+                            {
+                                *expr = Self::create_number_lit(Self::i64_to_f64(neg));
                             }
                         }
                     }
@@ -481,10 +527,13 @@ impl VisitMut for SimplifyVisitor {
                         if let Expr::Lit(Lit::Str(s)) = &*unary.arg
                             && let Some(str_val) = s.value.as_str()
                         {
-                            if str_val.starts_with("0x") || str_val.starts_with("0X") {
+                            if let Some(hex) = str_val
+                                .strip_prefix("0x")
+                                .or_else(|| str_val.strip_prefix("0X"))
+                            {
                                 // Parse hex string
-                                if let Ok(num) = i64::from_str_radix(&str_val[2..], 16) {
-                                    *expr = Self::create_number_lit(num as f64);
+                                if let Ok(num) = i64::from_str_radix(hex, 16) {
+                                    *expr = Self::create_number_lit(Self::i64_to_f64(num));
                                 }
                             } else if let Ok(num) = str_val.parse::<f64>() {
                                 // Regular numeric string
@@ -520,7 +569,7 @@ impl VisitMut for SimplifyVisitor {
             Stmt::If(if_stmt) => {
                 // Convert consequent to block if needed
                 if !matches!(&*if_stmt.cons, Stmt::Block(_)) {
-                    let cons = std::mem::replace(
+                    let cons = mem::replace(
                         &mut *if_stmt.cons,
                         Stmt::Empty(EmptyStmt {
                             span: Span::default(),
@@ -537,7 +586,7 @@ impl VisitMut for SimplifyVisitor {
                 if let Some(alt) = &mut if_stmt.alt
                     && !matches!(&**alt, Stmt::Block(_) | Stmt::If(_))
                 {
-                    let alt_stmt = std::mem::replace(
+                    let alt_stmt = mem::replace(
                         &mut **alt,
                         Stmt::Empty(EmptyStmt {
                             span: Span::default(),
@@ -553,7 +602,7 @@ impl VisitMut for SimplifyVisitor {
 
             Stmt::For(for_stmt) => {
                 if !matches!(&*for_stmt.body, Stmt::Block(_)) {
-                    let body = std::mem::replace(
+                    let body = mem::replace(
                         &mut *for_stmt.body,
                         Stmt::Empty(EmptyStmt {
                             span: Span::default(),
@@ -569,7 +618,7 @@ impl VisitMut for SimplifyVisitor {
 
             Stmt::While(while_stmt) => {
                 if !matches!(&*while_stmt.body, Stmt::Block(_)) {
-                    let body = std::mem::replace(
+                    let body = mem::replace(
                         &mut *while_stmt.body,
                         Stmt::Empty(EmptyStmt {
                             span: Span::default(),
@@ -597,7 +646,7 @@ impl VisitMut for FixupVisitor {
 
         // Convert negative number literals to UnaryExpression (prevents codegen errors)
         if let Expr::Lit(Lit::Num(n)) = expr
-            && n.value < 0.0
+            && n.value < ZERO_F64
         {
             *expr = Expr::Unary(UnaryExpr {
                 span: Span::default(),
@@ -794,7 +843,8 @@ fn extract_single_return_expr(stmts: &[Stmt]) -> Option<Expr> {
     if non_empty.len() != 1 {
         return None;
     }
-    match non_empty[0] {
+    let first = non_empty.first()?;
+    match first {
         Stmt::Return(ret) => ret.arg.as_ref().map(|e| (**e).clone()),
         _ => None,
     }
@@ -841,7 +891,9 @@ impl ScopeAwareProxySubstitutor {
     #[must_use]
     fn resolves_to_param(&self, name: &str) -> bool {
         for idx in (0..self.scope_stack.len()).rev() {
-            if self.scope_stack[idx].contains(name) {
+            if let Some(scope) = self.scope_stack.get(idx)
+                && scope.contains(name)
+            {
                 return idx == 0;
             }
         }
@@ -1134,7 +1186,7 @@ mod tests {
     use super::*;
     use crate::Deobfuscator;
     use crate::deobfuscator::DeobfuscateOptions;
-    use std::sync::Arc;
+    use alloc::sync::Arc;
 
     fn deob_with_simplify(code: &str) -> String {
         let deob = Deobfuscator::new();
@@ -1146,28 +1198,35 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_math() {
+    fn eval_math() {
+        const ZERO: f64 = 0.0;
+        const ONE: f64 = 1.0;
+        const TWO: f64 = 2.0;
+        const THREE: f64 = 3.0;
+        const FIVE: f64 = 5.0;
+        const SIX: f64 = 6.0;
+
         assert_eq!(
-            SimplifyVisitor::eval_math(1.0, BinaryOp::Add, 2.0),
-            Some(3.0)
+            SimplifyVisitor::eval_math(ONE, BinaryOp::Add, TWO),
+            Some(THREE)
         );
         assert_eq!(
-            SimplifyVisitor::eval_math(5.0, BinaryOp::Sub, 3.0),
-            Some(2.0)
+            SimplifyVisitor::eval_math(FIVE, BinaryOp::Sub, THREE),
+            Some(TWO)
         );
         assert_eq!(
-            SimplifyVisitor::eval_math(2.0, BinaryOp::Mul, 3.0),
-            Some(6.0)
+            SimplifyVisitor::eval_math(TWO, BinaryOp::Mul, THREE),
+            Some(SIX)
         );
         assert_eq!(
-            SimplifyVisitor::eval_math(6.0, BinaryOp::Div, 2.0),
-            Some(3.0)
+            SimplifyVisitor::eval_math(SIX, BinaryOp::Div, TWO),
+            Some(THREE)
         );
-        assert_eq!(SimplifyVisitor::eval_math(1.0, BinaryOp::Div, 0.0), None);
+        assert_eq!(SimplifyVisitor::eval_math(ONE, BinaryOp::Div, ZERO), None);
     }
 
     #[test]
-    fn test_eval_comparison() {
+    fn eval_comparison() {
         assert_eq!(
             SimplifyVisitor::eval_comparison_num(1.0, BinaryOp::EqEq, 1.0),
             Some(true)
@@ -1187,7 +1246,7 @@ mod tests {
     }
 
     #[test]
-    fn test_negative_hex_string() {
+    fn negative_hex_string() {
         // -"0x123" should become -291
         let code = r#"var x = -"0x123";"#;
         let result = deob_with_simplify(code);
@@ -1195,7 +1254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_positive_hex_string() {
+    fn positive_hex_string() {
         // +"0x100" should become 256
         let code = r#"var x = +"0x100";"#;
         let result = deob_with_simplify(code);
@@ -1203,28 +1262,28 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_int_string_literal() {
+    fn parse_int_string_literal() {
         let code = r#"var x = parseInt("13FKWwew");"#;
         let result = deob_with_simplify(code);
         assert!(result.contains("13"));
     }
 
     #[test]
-    fn test_parse_int_radix_literal() {
+    fn parse_int_radix_literal() {
         let code = r#"var x = parseInt("ff", 16);"#;
         let result = deob_with_simplify(code);
         assert!(result.contains("255"));
     }
 
     #[test]
-    fn test_hex_string_escape_decoding() {
+    fn hex_string_escape_decoding() {
         let code = r#"var x = "\x57\x65\x62";"#;
         let result = deob_with_simplify(code);
         assert!(result.contains("\"Web\""));
     }
 
     #[test]
-    fn test_typeof_undefined() {
+    fn typeof_undefined() {
         // typeof undefined === "undefined" should become true
         let code = r#"var x = typeof undefined === "undefined";"#;
         let result = deob_with_simplify(code);
@@ -1232,35 +1291,35 @@ mod tests {
     }
 
     #[test]
-    fn test_fix_proxies_inlines_call_proxy_iife() {
-        let code = r#"
+    fn fix_proxies_inlines_call_proxy_iife() {
+        let code = r"
 function f(){ return 1; }
 function h(x){ return x; }
 (function(a, b){ return b(a()); })(f, h);
-"#;
+";
         let result = deob_with_simplify(code);
         assert!(result.contains("h(f())") || result.contains("h(f());"));
     }
 
     #[test]
-    fn test_fix_proxies_requires_safe_args() {
-        let code = r#"(function(a){ return a(); })(foo.bar);"#;
+    fn fix_proxies_requires_safe_args() {
+        let code = r"(function(a){ return a(); })(foo.bar);";
         let result = deob_with_simplify(code);
         // Should not inline because `foo.bar` is not a literal/identifier.
         assert!(result.contains("function"));
     }
 
     #[test]
-    fn test_fix_proxies_respects_shadowing_in_nested_functions() {
+    fn fix_proxies_respects_shadowing_in_nested_functions() {
         use crate::{DeobfuscateOptions, Deobfuscator};
-        use std::sync::Arc;
+        use alloc::sync::Arc;
 
         let deob = Deobfuscator::new();
-        let code = r#"
+        let code = r"
 var x = 123;
 function y(fn){ return fn(1); }
 (function(a, b){ return b(function(a){ return a; }); })(x, y);
-"#;
+";
         let options = DeobfuscateOptions {
             custom_transformers: Some(vec![Arc::new(Simplify::new())]),
             ..Default::default()

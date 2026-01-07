@@ -4,7 +4,8 @@
 //! It stores the AST and the metadata collected by earlier passes (string
 //! arrays, decoder functions, control-flow storage, etc.).
 
-use std::fmt;
+use core::fmt;
+use std::collections::HashMap;
 
 use swc_ecma_ast::{Function, Lit, Program};
 
@@ -113,7 +114,7 @@ pub struct Context {
     pub string_decoder_references: Vec<DecoderReference>,
 
     /// Control flow storage nodes by block ID
-    pub control_flow_storage_nodes: std::collections::HashMap<String, ControlFlowStorage>,
+    pub control_flow_storage_nodes: HashMap<String, ControlFlowStorage>,
 
     /// Whether to remove garbage/dead code
     pub remove_garbage: bool,
@@ -165,7 +166,7 @@ impl Context {
             string_arrays: Vec::new(),
             string_decoders: Vec::new(),
             string_decoder_references: Vec::new(),
-            control_flow_storage_nodes: std::collections::HashMap::new(),
+            control_flow_storage_nodes: HashMap::new(),
             remove_garbage: true,
             rename_enabled: false,
             transformers,

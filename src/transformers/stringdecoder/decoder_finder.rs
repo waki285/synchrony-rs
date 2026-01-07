@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use swc_ecma_ast::*;
-use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
+use swc_ecma_visit::{Visit, VisitMut, VisitMutWith as _, VisitWith as _};
 
 use crate::context::{DecoderFunction, DecoderFunctionType, StringArray};
 
@@ -66,6 +66,11 @@ impl<'a> DecoderFunctionFinder<'a> {
     }
 
     #[must_use]
+    fn eval_const_i32(expr: &Expr) -> Option<i32> {
+        i32::try_from(eval_const_i64(expr)?).ok()
+    }
+
+    #[must_use]
     fn assign_left_name(assign: &AssignExpr) -> Option<&str> {
         assign
             .left
@@ -78,7 +83,7 @@ impl<'a> DecoderFunctionFinder<'a> {
     pub(super) fn extract_offset(expr: &Expr) -> Option<i32> {
         if let Expr::Bin(bin) = expr {
             // Check right side for number
-            let num = eval_const_i64(&bin.right)? as i32;
+            let num = Self::eval_const_i32(&bin.right)?;
 
             // Apply operator
             match bin.op {
@@ -104,8 +109,8 @@ impl<'a> DecoderFunctionFinder<'a> {
                 }
                 Self::extract_offset(&assign.right)
             }
-            AssignOp::AddAssign => eval_const_i64(&assign.right).map(|v| v as i32),
-            AssignOp::SubAssign => eval_const_i64(&assign.right).map(|v| -(v as i32)),
+            AssignOp::AddAssign => Self::eval_const_i32(&assign.right),
+            AssignOp::SubAssign => Self::eval_const_i32(&assign.right).map(|v| -v),
             _ => None,
         }
     }
@@ -124,16 +129,14 @@ impl<'a> DecoderFunctionFinder<'a> {
     fn find_offset_in_stmt(stmt: &Stmt) -> Option<i32> {
         match stmt {
             Stmt::Expr(expr_stmt) => Self::find_offset_in_expr(&expr_stmt.expr),
-            Stmt::Return(ret) => ret
-                .arg
-                .as_ref()
-                .and_then(|arg| Self::find_offset_in_expr(arg)),
+            Stmt::Return(ret) => {
+                let arg = ret.arg.as_ref()?;
+                Self::find_offset_in_expr(arg)
+            }
             Stmt::Block(block) => Self::find_offset_in_stmts(&block.stmts),
             Stmt::If(if_stmt) => Self::find_offset_in_stmt(&if_stmt.cons).or_else(|| {
-                if_stmt
-                    .alt
-                    .as_ref()
-                    .and_then(|alt| Self::find_offset_in_stmt(alt))
+                let alt = if_stmt.alt.as_ref()?;
+                Self::find_offset_in_stmt(alt)
             }),
             Stmt::While(while_stmt) => Self::find_offset_in_stmt(&while_stmt.body),
             Stmt::For(for_stmt) => Self::find_offset_in_stmt(&for_stmt.body),
@@ -203,17 +206,15 @@ impl<'a> DecoderFunctionFinder<'a> {
     fn find_offset_in_self_stmt(stmt: &Stmt, fn_name: &str) -> Option<i32> {
         match stmt {
             Stmt::Expr(expr_stmt) => Self::find_offset_in_self_expr(&expr_stmt.expr, fn_name),
-            Stmt::Return(ret) => ret
-                .arg
-                .as_ref()
-                .and_then(|arg| Self::find_offset_in_self_expr(arg, fn_name)),
+            Stmt::Return(ret) => {
+                let arg = ret.arg.as_ref()?;
+                Self::find_offset_in_self_expr(arg, fn_name)
+            }
             Stmt::Block(block) => Self::find_offset_in_self_assignment(&block.stmts, fn_name),
             Stmt::If(if_stmt) => {
                 Self::find_offset_in_self_stmt(&if_stmt.cons, fn_name).or_else(|| {
-                    if_stmt
-                        .alt
-                        .as_ref()
-                        .and_then(|alt| Self::find_offset_in_self_stmt(alt, fn_name))
+                    let alt = if_stmt.alt.as_ref()?;
+                    Self::find_offset_in_self_stmt(alt, fn_name)
                 })
             }
             Stmt::While(while_stmt) => Self::find_offset_in_self_stmt(&while_stmt.body, fn_name),
@@ -281,7 +282,7 @@ impl<'a> DecoderFunctionFinder<'a> {
                         && let Some(v) = s.value.as_str()
                         && v.len() == 65
                     {
-                        return Some(v.to_string());
+                        return Some(v.to_owned());
                     }
                 }
             }
@@ -499,15 +500,11 @@ impl<'a> DecoderFunctionFinder<'a> {
                     .as_ref()
                     .is_some_and(|init| Self::expr_contains_member_prop(init, prop))
             }),
-            Stmt::Decl(Decl::Fn(fn_decl)) => fn_decl
-                .function
-                .body
-                .as_ref()
-                .is_some_and(|body| {
-                    body.stmts
-                        .iter()
-                        .any(|s| Self::stmt_contains_member_prop(s, prop))
-                }),
+            Stmt::Decl(Decl::Fn(fn_decl)) => fn_decl.function.body.as_ref().is_some_and(|body| {
+                body.stmts
+                    .iter()
+                    .any(|s| Self::stmt_contains_member_prop(s, prop))
+            }),
             Stmt::Block(block) => block
                 .stmts
                 .iter()
@@ -563,25 +560,19 @@ impl<'a> DecoderFunctionFinder<'a> {
                     .stmts
                     .iter()
                     .any(|s| Self::stmt_contains_member_prop(s, prop))
-                    || try_stmt
-                        .handler
-                        .as_ref()
-                        .is_some_and(|handler| {
-                            handler
-                                .body
-                                .stmts
-                                .iter()
-                                .any(|s| Self::stmt_contains_member_prop(s, prop))
-                        })
-                    || try_stmt
-                        .finalizer
-                        .as_ref()
-                        .is_some_and(|finalizer| {
-                            finalizer
-                                .stmts
-                                .iter()
-                                .any(|s| Self::stmt_contains_member_prop(s, prop))
-                        })
+                    || try_stmt.handler.as_ref().is_some_and(|handler| {
+                        handler
+                            .body
+                            .stmts
+                            .iter()
+                            .any(|s| Self::stmt_contains_member_prop(s, prop))
+                    })
+                    || try_stmt.finalizer.as_ref().is_some_and(|finalizer| {
+                        finalizer
+                            .stmts
+                            .iter()
+                            .any(|s| Self::stmt_contains_member_prop(s, prop))
+                    })
             }
             _ => false,
         }
@@ -648,31 +639,21 @@ impl<'a> DecoderFunctionFinder<'a> {
             Expr::Object(obj) => obj.props.iter().any(|prop_item| match prop_item {
                 PropOrSpread::Prop(prop) => match &**prop {
                     Prop::KeyValue(kv) => Self::expr_contains_member_prop(&kv.value, prop_name),
-                    Prop::Method(method) => method
-                        .function
-                        .body
-                        .as_ref()
-                        .is_some_and(|body| {
-                            body.stmts
-                                .iter()
-                                .any(|s| Self::stmt_contains_member_prop(s, prop_name))
-                        }),
-                    Prop::Getter(getter) => getter
-                        .body
-                        .as_ref()
-                        .is_some_and(|body| {
-                            body.stmts
-                                .iter()
-                                .any(|s| Self::stmt_contains_member_prop(s, prop_name))
-                        }),
-                    Prop::Setter(setter) => setter
-                        .body
-                        .as_ref()
-                        .is_some_and(|body| {
-                            body.stmts
-                                .iter()
-                                .any(|s| Self::stmt_contains_member_prop(s, prop_name))
-                        }),
+                    Prop::Method(method) => method.function.body.as_ref().is_some_and(|body| {
+                        body.stmts
+                            .iter()
+                            .any(|s| Self::stmt_contains_member_prop(s, prop_name))
+                    }),
+                    Prop::Getter(getter) => getter.body.as_ref().is_some_and(|body| {
+                        body.stmts
+                            .iter()
+                            .any(|s| Self::stmt_contains_member_prop(s, prop_name))
+                    }),
+                    Prop::Setter(setter) => setter.body.as_ref().is_some_and(|body| {
+                        body.stmts
+                            .iter()
+                            .any(|s| Self::stmt_contains_member_prop(s, prop_name))
+                    }),
                     _ => false,
                 },
                 PropOrSpread::Spread(_) => false,
@@ -743,14 +724,12 @@ impl<'a> DecoderFunctionFinder<'a> {
                 .is_some_and(|arg| Self::expr_contains_bitxor(arg)),
             Stmt::Try(try_stmt) => {
                 try_stmt.block.stmts.iter().any(Self::stmt_contains_bitxor)
-                    || try_stmt
-                        .handler
-                        .as_ref()
-                        .is_some_and(|handler| handler.body.stmts.iter().any(Self::stmt_contains_bitxor))
-                    || try_stmt
-                        .finalizer
-                        .as_ref()
-                        .is_some_and(|finalizer| finalizer.stmts.iter().any(Self::stmt_contains_bitxor))
+                    || try_stmt.handler.as_ref().is_some_and(|handler| {
+                        handler.body.stmts.iter().any(Self::stmt_contains_bitxor)
+                    })
+                    || try_stmt.finalizer.as_ref().is_some_and(|finalizer| {
+                        finalizer.stmts.iter().any(Self::stmt_contains_bitxor)
+                    })
             }
             _ => false,
         }
@@ -833,15 +812,11 @@ impl<'a> DecoderFunctionFinder<'a> {
                     .as_ref()
                     .is_some_and(|init| Self::expr_contains_number(init, value))
             }),
-            Stmt::Decl(Decl::Fn(fn_decl)) => fn_decl
-                .function
-                .body
-                .as_ref()
-                .is_some_and(|body| {
-                    body.stmts
-                        .iter()
-                        .any(|s| Self::stmt_contains_number(s, value))
-                }),
+            Stmt::Decl(Decl::Fn(fn_decl)) => fn_decl.function.body.as_ref().is_some_and(|body| {
+                body.stmts
+                    .iter()
+                    .any(|s| Self::stmt_contains_number(s, value))
+            }),
             Stmt::Block(block) => block
                 .stmts
                 .iter()
@@ -897,31 +872,29 @@ impl<'a> DecoderFunctionFinder<'a> {
                     .stmts
                     .iter()
                     .any(|s| Self::stmt_contains_number(s, value))
-                    || try_stmt
-                        .handler
-                        .as_ref()
-                        .is_some_and(|handler| {
-                            handler
-                                .body
-                                .stmts
-                                .iter()
-                                .any(|s| Self::stmt_contains_number(s, value))
-                        })
-                    || try_stmt
-                        .finalizer
-                        .as_ref()
-                        .is_some_and(|finalizer| {
-                            finalizer
-                                .stmts
-                                .iter()
-                                .any(|s| Self::stmt_contains_number(s, value))
-                        })
+                    || try_stmt.handler.as_ref().is_some_and(|handler| {
+                        handler
+                            .body
+                            .stmts
+                            .iter()
+                            .any(|s| Self::stmt_contains_number(s, value))
+                    })
+                    || try_stmt.finalizer.as_ref().is_some_and(|finalizer| {
+                        finalizer
+                            .stmts
+                            .iter()
+                            .any(|s| Self::stmt_contains_number(s, value))
+                    })
             }
             _ => false,
         }
     }
 
     #[must_use]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "JS numeric comparisons use f64 epsilon"
+    )]
     fn expr_contains_number(expr: &Expr, value: f64) -> bool {
         match expr {
             Expr::Lit(Lit::Num(n)) => (n.value - value).abs() < f64::EPSILON,
@@ -968,31 +941,21 @@ impl<'a> DecoderFunctionFinder<'a> {
             Expr::Object(obj) => obj.props.iter().any(|prop| match prop {
                 PropOrSpread::Prop(prop) => match &**prop {
                     Prop::KeyValue(kv) => Self::expr_contains_number(&kv.value, value),
-                    Prop::Method(method) => method
-                        .function
-                        .body
-                        .as_ref()
-                        .is_some_and(|body| {
-                            body.stmts
-                                .iter()
-                                .any(|s| Self::stmt_contains_number(s, value))
-                        }),
-                    Prop::Getter(getter) => getter
-                        .body
-                        .as_ref()
-                        .is_some_and(|body| {
-                            body.stmts
-                                .iter()
-                                .any(|s| Self::stmt_contains_number(s, value))
-                        }),
-                    Prop::Setter(setter) => setter
-                        .body
-                        .as_ref()
-                        .is_some_and(|body| {
-                            body.stmts
-                                .iter()
-                                .any(|s| Self::stmt_contains_number(s, value))
-                        }),
+                    Prop::Method(method) => method.function.body.as_ref().is_some_and(|body| {
+                        body.stmts
+                            .iter()
+                            .any(|s| Self::stmt_contains_number(s, value))
+                    }),
+                    Prop::Getter(getter) => getter.body.as_ref().is_some_and(|body| {
+                        body.stmts
+                            .iter()
+                            .any(|s| Self::stmt_contains_number(s, value))
+                    }),
+                    Prop::Setter(setter) => setter.body.as_ref().is_some_and(|body| {
+                        body.stmts
+                            .iter()
+                            .any(|s| Self::stmt_contains_number(s, value))
+                    }),
                     _ => false,
                 },
                 PropOrSpread::Spread(_) => false,
@@ -1043,13 +1006,13 @@ impl VisitMut for DecoderFunctionFinder<'_> {
         // return strArr[idx];
 
         let mut string_array_identifier = None;
-        let mut offset = 0i32;
+        let mut offset: i32 = 0;
         let mut offset_found = false;
         let mut decoder_type = DecoderFunctionType::Simple;
         let mut charset = None;
         let mut rc4_found = false;
-        let mut index_argument = 0usize;
-        let key_argument = 1usize;
+        let mut index_argument: usize = 0;
+        let key_argument: usize = 1;
 
         Self::scan_decoder_helpers_in_stmts(&body.stmts, &mut charset, &mut rc4_found);
 

@@ -1,6 +1,7 @@
 //! Biome-based JavaScript formatter helpers.
 
-use std::error::Error;
+use alloc::boxed::Box;
+use core::error::Error;
 
 use biome_formatter::{IndentStyle, IndentWidth};
 use biome_js_formatter::{context::JsFormatOptions, format_node};
@@ -70,5 +71,5 @@ pub fn format_js(source: &str, source_type: SourceType) -> Result<String, Box<dy
         &syntax,
     )?;
     let printed = formatted.print()?;
-    Ok(printed.as_code().to_string())
+    Ok(printed.as_code().to_owned())
 }

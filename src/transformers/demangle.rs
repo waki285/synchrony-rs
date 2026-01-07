@@ -5,7 +5,7 @@
 
 use swc_common::{Span, SyntaxContext};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
 use crate::context::Context;
 use crate::error::Result;
@@ -79,6 +79,9 @@ impl VisitMut for DemangleProxyVisitor {
                 return;
             }
 
+            let Some(first_stmt) = non_empty.first().cloned() else {
+                return;
+            };
             // Last statement must be a return
             let last = non_empty
                 .last()
@@ -100,7 +103,7 @@ impl VisitMut for DemangleProxyVisitor {
                     // func_name = function() { ... }
                     // return func_name(...)
                     let new_stmts = vec![
-                        non_empty[0].clone(),
+                        first_stmt,
                         Stmt::Expr(ExprStmt {
                             span: Span::default(),
                             expr: Box::new(Expr::Assign(AssignExpr {
@@ -132,15 +135,17 @@ impl VisitMut for DemangleProxyVisitor {
                 // Pattern 2: return (assignment_expr, call_expr)
                 if let Expr::Seq(seq) = &**arg
                     && seq.exprs.len() == 2
+                    && let (Some(first_expr), Some(second_expr)) =
+                        (seq.exprs.first(), seq.exprs.get(1))
                     && let (Expr::Assign(assign), Expr::Call(call)) =
-                        (&*seq.exprs[0], &*seq.exprs[1])
+                        (&**first_expr, &**second_expr)
                     && let AssignTarget::Simple(SimpleAssignTarget::Ident(id)) = &assign.left
                     && let Expr::Fn(_) = &*assign.right
                 {
                     let func_name = id.id.sym.to_string();
 
                     let new_stmts = vec![
-                        non_empty[0].clone(),
+                        first_stmt,
                         Stmt::Expr(ExprStmt {
                             span: Span::default(),
                             expr: Box::new(Expr::Assign(assign.clone())),
@@ -185,12 +190,16 @@ impl VisitMut for DemangleStringFuncsVisitor {
         }
 
         // Second statement must be: funcName = function() { ... }
-        let Stmt::Expr(expr_stmt) = &body.stmts[1] else {
+        let Some(stmt) = body.stmts.get(1) else {
+            return;
+        };
+        let Stmt::Expr(expr_stmt) = stmt else {
             return;
         };
         let Expr::Assign(assign) = &*expr_stmt.expr else {
             return;
         };
+        let assign = assign.clone();
 
         // Check left side is identifier matching function name
         let AssignTarget::Simple(SimpleAssignTarget::Ident(left_id)) = &assign.left else {
@@ -213,14 +222,19 @@ impl VisitMut for DemangleStringFuncsVisitor {
         }
 
         // First statement in inner function should be a variable declaration
-        let Stmt::Decl(Decl::Var(var_decl)) = &inner_body.stmts[0] else {
+        let Some(stmt) = inner_body.stmts.first() else {
+            return;
+        };
+        let Stmt::Decl(Decl::Var(var_decl)) = stmt else {
             return;
         };
         if var_decl.decls.len() != 1 {
             return;
         }
 
-        let declarator = &var_decl.decls[0];
+        let Some(declarator) = var_decl.decls.first() else {
+            return;
+        };
         let Some(init) = &declarator.init else { return };
 
         // Should be a member expression with assignment in property
@@ -286,8 +300,10 @@ impl VisitMut for DemangleStringFuncsVisitor {
         // We need to clone and modify the inner function
         let mut new_inner_body_stmts = inner_body.stmts.clone();
 
-        if let Stmt::Decl(Decl::Var(var_decl)) = &mut new_inner_body_stmts[0]
-            && let Some(ref mut init) = var_decl.decls[0].init
+        if let Some(stmt) = new_inner_body_stmts.get_mut(0)
+            && let Stmt::Decl(Decl::Var(var_decl)) = stmt
+            && let Some(decl) = var_decl.decls.get_mut(0)
+            && let Some(ref mut init) = decl.init
             && let Expr::Member(member) = &mut **init
         {
             member.prop = MemberProp::Computed(ComputedPropName {
@@ -325,15 +341,17 @@ impl VisitMut for DemangleStringFuncsVisitor {
         };
 
         // Update the assignment
-        body.stmts[1] = Stmt::Expr(ExprStmt {
-            span: Span::default(),
-            expr: Box::new(Expr::Assign(AssignExpr {
-                span: assign.span,
-                op: assign.op,
-                left: assign.left.clone(),
-                right: Box::new(Expr::Fn(new_fn_expr)),
-            })),
-        });
+        if let Some(stmt) = body.stmts.get_mut(1) {
+            *stmt = Stmt::Expr(ExprStmt {
+                span: Span::default(),
+                expr: Box::new(Expr::Assign(AssignExpr {
+                    span: assign.span,
+                    op: assign.op,
+                    left: assign.left.clone(),
+                    right: Box::new(Expr::Fn(new_fn_expr)),
+                })),
+            });
+        }
     }
 }
 
@@ -359,7 +377,9 @@ impl DemangleIIFEVisitor {
         }
 
         // Must be a return statement
-        if let Stmt::Return(ret) = stmts[0] {
+        if let Some(stmt) = stmts.first()
+            && let Stmt::Return(ret) = stmt
+        {
             ret.arg.as_ref().map(|e| (**e).clone())
         } else {
             None
@@ -422,7 +442,8 @@ impl VisitMut for DemangleIIFEVisitor {
                         .collect();
 
                     if non_empty.len() == 1
-                        && let Stmt::Return(ret) = non_empty[0]
+                        && let Some(stmt) = non_empty.first()
+                        && let Stmt::Return(ret) = stmt
                         && let Some(arg) = &ret.arg
                     {
                         *expr = (**arg).clone();
@@ -449,13 +470,13 @@ mod tests {
     use crate::Deobfuscator;
 
     #[test]
-    fn test_demangle_new() {
+    fn demangle_new() {
         let transformer = Demangle::new();
         assert_eq!(transformer.name(), "Demangle");
     }
 
     #[test]
-    fn test_demangle_iife() {
+    fn demangle_iife() {
         let deob = Deobfuscator::new();
         let code = "(function() { return 42; })();";
         let result = deob.deobfuscate_source(code, None).unwrap();
@@ -463,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn test_demangle_arrow_iife() {
+    fn demangle_arrow_iife() {
         let deob = Deobfuscator::new();
         let code = "(() => 123)();";
         let result = deob.deobfuscate_source(code, None).unwrap();

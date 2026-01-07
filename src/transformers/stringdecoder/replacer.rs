@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use swc_common::Span;
 use swc_ecma_ast::*;
-use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
+use swc_ecma_visit::{Visit, VisitMut, VisitMutWith as _, VisitWith as _};
 
 use crate::context::{DecoderFunction, DecoderFunctionType, DecoderReference, StringArray};
 
@@ -37,8 +37,8 @@ impl<'a> StringDecoderReplacer<'a> {
         }
 
         // Reference chain lookup
-        let mut current_name = name.to_string();
-        let mut total_offset = 0i32;
+        let mut current_name = name.to_owned();
+        let mut total_offset: i32 = 0;
         let mut index_argument = None;
         let mut key_argument = None;
         let mut visited = vec![];
@@ -86,6 +86,18 @@ impl<'a> StringDecoderReplacer<'a> {
     }
 
     #[must_use]
+    fn number_to_i32(value: f64) -> Option<i32> {
+        (value.is_finite() && value.fract() == 0.0).then(|| {
+            #[expect(
+                clippy::as_conversions,
+                reason = "JS numeric literals are f64; conversion is guarded to integral values"
+            )]
+            let int_value = value as i32;
+            int_value
+        })
+    }
+
+    #[must_use]
     fn decode(&self, decoder_name: &str, args: &[ExprOrSpread]) -> Option<String> {
         let (decoder, extra_offset, index_argument, key_argument) =
             self.resolve_decoder(decoder_name)?;
@@ -96,30 +108,26 @@ impl<'a> StringDecoderReplacer<'a> {
             .find(|a| a.identifier == decoder.string_array_identifier)?;
 
         // Get the index argument
-        let index = if index_argument < args.len() {
-            match &*args[index_argument].expr {
-                Expr::Lit(Lit::Num(n)) => n.value as i32,
-                Expr::Lit(Lit::Str(s)) => parse_index_str(s.value.as_str()?)?,
-                Expr::Unary(unary) if unary.op == UnaryOp::Minus => {
-                    if let Expr::Lit(Lit::Num(n)) = &*unary.arg {
-                        -(n.value as i32)
-                    } else {
-                        return None;
-                    }
+        let index_arg = args.get(index_argument)?;
+        let index = match &*index_arg.expr {
+            Expr::Lit(Lit::Num(n)) => Self::number_to_i32(n.value)?,
+            Expr::Lit(Lit::Str(s)) => parse_index_str(s.value.as_str()?)?,
+            Expr::Unary(unary) if unary.op == UnaryOp::Minus => {
+                if let Expr::Lit(Lit::Num(n)) = &*unary.arg {
+                    Self::number_to_i32(n.value).map(|v| -v)?
+                } else {
+                    return None;
                 }
-                _ => return None,
             }
-        } else {
-            return None;
+            _ => return None,
         };
 
-        let actual_index = (index + decoder.offset + extra_offset) as usize;
+        let actual_index = i64::from(index)
+            .checked_add(i64::from(decoder.offset))?
+            .checked_add(i64::from(extra_offset))?;
+        let actual_index = usize::try_from(actual_index).ok()?;
 
-        if actual_index >= string_array.strings.len() {
-            return None;
-        }
-
-        let raw_string = &string_array.strings[actual_index];
+        let raw_string = string_array.strings.get(actual_index)?;
 
         match decoder.decoder_type {
             DecoderFunctionType::Simple => Some(raw_string.clone()),
@@ -129,13 +137,10 @@ impl<'a> StringDecoderReplacer<'a> {
             }
             DecoderFunctionType::Rc4 => {
                 // Get the key argument
-                let key = if key_argument < args.len() {
-                    match &*args[key_argument].expr {
-                        Expr::Lit(Lit::Str(s)) => s.value.as_str()?.to_string(),
-                        _ => return None,
-                    }
-                } else {
-                    return None;
+                let key_arg = args.get(key_argument)?;
+                let key = match &*key_arg.expr {
+                    Expr::Lit(Lit::Str(s)) => s.value.as_str()?.to_owned(),
+                    _ => return None,
                 };
 
                 let charset = decoder
@@ -181,10 +186,9 @@ pub(super) fn parse_index_str(value: &str) -> Option<i32> {
         return None;
     }
 
-    let (neg, rest) =
-        trimmed
-            .strip_prefix('-')
-            .map_or((false, trimmed), |stripped| (true, stripped));
+    let (neg, rest) = trimmed
+        .strip_prefix('-')
+        .map_or((false, trimmed), |stripped| (true, stripped));
 
     let parsed = if let Some(hex) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
         i32::from_str_radix(hex, 16).ok()?
@@ -227,6 +231,10 @@ impl Visit for DecoderCallFinder<'_> {
     }
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "Indices come from enumerate() over the same slice"
+)]
 pub(super) fn remove_tainted_statements(
     program: &mut Program,
     roots: &HashSet<String>,
@@ -275,6 +283,14 @@ pub(super) fn remove_tainted_statements(
     }
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "Indices come from enumerate() over the same slice"
+)]
+#[expect(
+    clippy::iter_over_hash_type,
+    reason = "Taint propagation order is not significant"
+)]
 fn mark_tainted_module_items(
     items: &[ModuleItem],
     roots: &HashSet<String>,
@@ -314,6 +330,10 @@ fn mark_tainted_module_items(
     flags
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "Indices come from enumerate() over the same slice"
+)]
 fn has_decoder_call_outside_taint(
     stmts: &[Stmt],
     tainted: &[bool],
@@ -332,6 +352,10 @@ fn has_decoder_call_outside_taint(
     false
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "Indices come from enumerate() over the same slice"
+)]
 fn has_decoder_call_outside_taint_items(
     items: &[ModuleItem],
     tainted: &[bool],
@@ -363,6 +387,14 @@ fn module_item_has_decoder_call(item: &ModuleItem, decoder_names: &HashSet<Strin
     stmt_has_decoder_call(stmt, decoder_names)
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "Indices come from enumerate() over the same slice"
+)]
+#[expect(
+    clippy::iter_over_hash_type,
+    reason = "Taint propagation order is not significant"
+)]
 fn mark_tainted_stmts(
     stmts: &[Stmt],
     roots: &HashSet<String>,
