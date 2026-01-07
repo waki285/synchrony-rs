@@ -1,6 +1,6 @@
 [package]
 name = "synchrony-rs"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 authors = ["waki285 <suzuneu@suzuneu.com>", "relative <hi@relative.im>"]
 description = "A fast JavaScript deobfuscator written in Rust"
