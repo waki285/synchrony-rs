@@ -6,7 +6,7 @@
 //! ```rust
 //! use synchrony_rs::{DeobfuscateOptions, Deobfuscator};
 //! use synchrony_rs::transformers::Simplify;
-//! use alloc::sync::Arc;
+//! use std::sync::Arc;
 //!
 //! let deob = Deobfuscator::new();
 //! let options = DeobfuscateOptions {
