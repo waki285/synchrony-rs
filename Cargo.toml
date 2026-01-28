@@ -20,6 +20,10 @@ include = [
 
 rust-version = "1.88.0"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [[bin]]
 name = "synchrony"
 path = "src/main.rs"
@@ -76,12 +80,12 @@ serde-wasm-bindgen = { version = "0.6", optional = true }
 js-sys = { version = "0.3", optional = true }
 swc_atoms = "9"
 swc_common = { version = "18", features = ["tty-emitter"] }
-swc_ecma_ast = "19"
-swc_ecma_codegen = "21"
-swc_ecma_parser = "32"
-swc_ecma_usage_analyzer = "27"
-swc_ecma_utils = "25"
-swc_ecma_visit = "19"
+swc_ecma_ast = "20"
+swc_ecma_codegen = "23"
+swc_ecma_parser = "33"
+swc_ecma_usage_analyzer = "28"
+swc_ecma_utils = "26"
+swc_ecma_visit = "20"
 thiserror = "2"
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }

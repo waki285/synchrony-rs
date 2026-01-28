@@ -37,6 +37,8 @@
 //! ## CLI
 //! Build the CLI with default features and run `synchrony --help` for usage.
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 pub mod context;
 pub mod deobfuscator;
 pub mod error;
