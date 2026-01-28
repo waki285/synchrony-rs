@@ -343,6 +343,7 @@ impl VisitMut for BlockCleanupVisitor {
 struct ObfuscatedDeadCodeRemover<'a> {
     scope_data: &'a ScopeData,
     changed: bool,
+    in_for_head: bool,
 }
 
 impl<'a> ObfuscatedDeadCodeRemover<'a> {
@@ -350,6 +351,7 @@ impl<'a> ObfuscatedDeadCodeRemover<'a> {
         Self {
             scope_data,
             changed: false,
+            in_for_head: false,
         }
     }
 
@@ -367,6 +369,72 @@ impl<'a> ObfuscatedDeadCodeRemover<'a> {
 }
 
 impl VisitMut for ObfuscatedDeadCodeRemover<'_> {
+    fn visit_mut_for_stmt(&mut self, stmt: &mut ForStmt) {
+        let prev = self.in_for_head;
+        if let Some(init) = &mut stmt.init {
+            match init {
+                VarDeclOrExpr::VarDecl(var_decl) => {
+                    self.in_for_head = true;
+                    var_decl.visit_mut_with(self);
+                    self.in_for_head = prev;
+                }
+                VarDeclOrExpr::Expr(expr) => {
+                    self.in_for_head = false;
+                    expr.visit_mut_with(self);
+                    self.in_for_head = prev;
+                }
+            }
+        }
+
+        if let Some(test) = &mut stmt.test {
+            test.visit_mut_with(self);
+        }
+        if let Some(update) = &mut stmt.update {
+            update.visit_mut_with(self);
+        }
+        stmt.body.visit_mut_with(self);
+    }
+
+    fn visit_mut_for_in_stmt(&mut self, stmt: &mut ForInStmt) {
+        stmt.right.visit_mut_with(self);
+        stmt.body.visit_mut_with(self);
+
+        match &mut stmt.left {
+            ForHead::VarDecl(var_decl) => {
+                let prev = self.in_for_head;
+                self.in_for_head = true;
+                var_decl.visit_mut_with(self);
+                self.in_for_head = prev;
+            }
+            ForHead::UsingDecl(using_decl) => {
+                using_decl.visit_mut_with(self);
+            }
+            ForHead::Pat(pat) => {
+                pat.visit_mut_with(self);
+            }
+        }
+    }
+
+    fn visit_mut_for_of_stmt(&mut self, stmt: &mut ForOfStmt) {
+        stmt.right.visit_mut_with(self);
+        stmt.body.visit_mut_with(self);
+
+        match &mut stmt.left {
+            ForHead::VarDecl(var_decl) => {
+                let prev = self.in_for_head;
+                self.in_for_head = true;
+                var_decl.visit_mut_with(self);
+                self.in_for_head = prev;
+            }
+            ForHead::UsingDecl(using_decl) => {
+                using_decl.visit_mut_with(self);
+            }
+            ForHead::Pat(pat) => {
+                pat.visit_mut_with(self);
+            }
+        }
+    }
+
     fn visit_mut_stmt(&mut self, stmt: &mut Stmt) {
         stmt.visit_mut_children_with(self);
 
@@ -382,6 +450,10 @@ impl VisitMut for ObfuscatedDeadCodeRemover<'_> {
 
     fn visit_mut_var_decl(&mut self, decl: &mut VarDecl) {
         decl.visit_mut_children_with(self);
+
+        if self.in_for_head {
+            return;
+        }
 
         decl.decls.retain(|declarator| {
             let Pat::Ident(binding) = &declarator.name else {

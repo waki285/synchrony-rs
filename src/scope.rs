@@ -355,10 +355,11 @@ mod tests {
     use super::*;
 
     fn parse_and_analyze(code: &str) -> ScopeData {
-        use swc_common::{GLOBALS, Globals, SourceMap, sync::Lrc};
+        use std::rc::Rc;
+        use swc_common::{GLOBALS, Globals, SourceMap};
         use swc_ecma_parser::{EsSyntax, Syntax, parse_file_as_module};
 
-        let cm: Lrc<SourceMap> = Lrc::default();
+        let cm = Rc::new(SourceMap::default());
         let fm = cm.new_source_file(
             swc_common::FileName::Custom("test.js".to_owned()).into(),
             code.to_owned(),

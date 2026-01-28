@@ -3,6 +3,8 @@
 //! Splits sequence expressions into individual statements.
 //! Example: `a = 1, b = 2, c = 3;` -> `a = 1; b = 2; c = 3;`
 
+use std::mem;
+
 use swc_common::Span;
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith as _};
@@ -90,7 +92,7 @@ impl DesequenceVisitor {
                 for expr in seq.exprs.iter().take(seq.exprs.len() - 1) {
                     new_stmts.push(Stmt::Expr(ExprStmt {
                         span: Span::default(),
-                        expr: expr.clone(),
+                        expr: Box::new(wrap_expr_for_stmt(*expr.clone())),
                     }));
                 }
 
@@ -117,7 +119,7 @@ impl DesequenceVisitor {
                     .map(|e| {
                         Stmt::Expr(ExprStmt {
                             span: Span::default(),
-                            expr: e.clone(),
+                            expr: Box::new(wrap_expr_for_stmt(*e.clone())),
                         })
                     })
                     .collect();
@@ -129,6 +131,18 @@ impl DesequenceVisitor {
                 continue;
             }
             i += 1;
+        }
+
+        for stmt in stmts.iter_mut() {
+            if let Stmt::Expr(expr_stmt) = stmt {
+                let expr = mem::replace(
+                    &mut expr_stmt.expr,
+                    Box::new(Expr::Invalid(Invalid {
+                        span: Span::default(),
+                    })),
+                );
+                *expr_stmt.expr = wrap_expr_for_stmt(*expr);
+            }
         }
     }
 }
@@ -199,6 +213,42 @@ const fn extract_seq_expr(expr: &Expr) -> Option<&SeqExpr> {
         Expr::Seq(seq) => Some(seq),
         Expr::Paren(paren) => extract_seq_expr(&paren.expr),
         _ => None,
+    }
+}
+
+fn wrap_expr_for_stmt(expr: Expr) -> Expr {
+    if matches!(expr, Expr::Paren(_)) {
+        return expr;
+    }
+    if expr_needs_paren_in_stmt(&expr) {
+        Expr::Paren(ParenExpr {
+            span: Span::default(),
+            expr: Box::new(expr),
+        })
+    } else {
+        expr
+    }
+}
+
+fn expr_needs_paren_in_stmt(expr: &Expr) -> bool {
+    match expr {
+        Expr::Fn(_) | Expr::Class(_) | Expr::Object(_) | Expr::Arrow(_) => true,
+        Expr::Bin(bin) => expr_needs_paren_in_stmt(&bin.left),
+        Expr::Cond(cond) => expr_needs_paren_in_stmt(&cond.test),
+        Expr::Call(call) => callee_needs_paren_in_stmt(&call.callee),
+        Expr::Seq(seq) => seq
+            .exprs
+            .first()
+            .is_some_and(|e| expr_needs_paren_in_stmt(e)),
+        Expr::Paren(paren) => expr_needs_paren_in_stmt(&paren.expr),
+        _ => false,
+    }
+}
+
+fn callee_needs_paren_in_stmt(callee: &Callee) -> bool {
+    match callee {
+        Callee::Expr(expr) => expr_needs_paren_in_stmt(expr),
+        _ => false,
     }
 }
 

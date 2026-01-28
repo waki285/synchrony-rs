@@ -125,6 +125,7 @@ impl FunctionLiteralsVisitor {
             literals: &read_only_literals,
             vars_to_remove: &vars_to_remove,
             remove_garbage: self.remove_garbage,
+            in_for_head: false,
         };
         body.visit_mut_with(&mut replacer);
     }
@@ -181,6 +182,7 @@ impl LiteralValue {
 struct LiteralMapVisitor {
     /// Map from variable name to property map
     maps: HashMap<String, HashMap<String, LiteralValue>>,
+    in_lvalue: bool,
 }
 
 impl LiteralMapVisitor {
@@ -188,6 +190,7 @@ impl LiteralMapVisitor {
     fn new() -> Self {
         Self {
             maps: HashMap::new(),
+            in_lvalue: false,
         }
     }
 
@@ -269,6 +272,42 @@ impl LiteralMapVisitor {
 }
 
 impl VisitMut for LiteralMapVisitor {
+    fn visit_mut_assign_expr(&mut self, expr: &mut AssignExpr) {
+        let prev = self.in_lvalue;
+        self.in_lvalue = true;
+        expr.left.visit_mut_with(self);
+        self.in_lvalue = false;
+        expr.right.visit_mut_with(self);
+        self.in_lvalue = prev;
+    }
+
+    fn visit_mut_update_expr(&mut self, expr: &mut UpdateExpr) {
+        let prev = self.in_lvalue;
+        self.in_lvalue = true;
+        expr.arg.visit_mut_with(self);
+        self.in_lvalue = prev;
+    }
+
+    fn visit_mut_for_in_stmt(&mut self, stmt: &mut ForInStmt) {
+        let prev = self.in_lvalue;
+        self.in_lvalue = true;
+        stmt.left.visit_mut_with(self);
+        self.in_lvalue = false;
+        stmt.right.visit_mut_with(self);
+        stmt.body.visit_mut_with(self);
+        self.in_lvalue = prev;
+    }
+
+    fn visit_mut_for_of_stmt(&mut self, stmt: &mut ForOfStmt) {
+        let prev = self.in_lvalue;
+        self.in_lvalue = true;
+        stmt.left.visit_mut_with(self);
+        self.in_lvalue = false;
+        stmt.right.visit_mut_with(self);
+        stmt.body.visit_mut_with(self);
+        self.in_lvalue = prev;
+    }
+
     fn visit_mut_var_decl(&mut self, decl: &mut VarDecl) {
         // First collect literal object declarations so same-statement uses can be replaced.
         for declarator in &decl.decls {
@@ -291,6 +330,10 @@ impl VisitMut for LiteralMapVisitor {
     fn visit_mut_expr(&mut self, expr: &mut Expr) {
         // First visit children
         expr.visit_mut_children_with(self);
+
+        if self.in_lvalue {
+            return;
+        }
 
         // Replace member expressions that reference our maps
         if let Expr::Member(member) = expr
@@ -340,7 +383,11 @@ impl VisitMut for ReadOnlyLiteralFinder<'_> {
                 // Check if this variable is read-only
                 if let Some(var_info) = self.scope_data.vars.get(&id) {
                     // Skip if not declared or if it's reassigned (assign_count > 1 means more than init)
-                    if !var_info.declared || var_info.assign_count > 1 || var_info.used_as_ref {
+                    if !var_info.declared
+                        || var_info.assign_count > 1
+                        || var_info.used_as_ref
+                        || var_info.declared_as_for_init
+                    {
                         continue;
                     }
 
@@ -390,14 +437,88 @@ struct LiteralReplacer<'a> {
     literals: &'a HashMap<Id, Expr>,
     vars_to_remove: &'a Vec<Id>,
     remove_garbage: bool,
+    in_for_head: bool,
 }
 
 impl VisitMut for LiteralReplacer<'_> {
+    fn visit_mut_for_stmt(&mut self, stmt: &mut ForStmt) {
+        let prev = self.in_for_head;
+        if let Some(init) = &mut stmt.init {
+            match init {
+                VarDeclOrExpr::VarDecl(var_decl) => {
+                    self.in_for_head = true;
+                    var_decl.visit_mut_with(self);
+                    self.in_for_head = prev;
+                }
+                VarDeclOrExpr::Expr(expr) => {
+                    self.in_for_head = false;
+                    expr.visit_mut_with(self);
+                    self.in_for_head = prev;
+                }
+            }
+        }
+
+        if let Some(test) = &mut stmt.test {
+            test.visit_mut_with(self);
+        }
+        if let Some(update) = &mut stmt.update {
+            update.visit_mut_with(self);
+        }
+        stmt.body.visit_mut_with(self);
+    }
+
+    fn visit_mut_for_in_stmt(&mut self, stmt: &mut ForInStmt) {
+        let prev = self.in_for_head;
+        match &mut stmt.left {
+            ForHead::VarDecl(var_decl) => {
+                self.in_for_head = true;
+                var_decl.visit_mut_with(self);
+                self.in_for_head = prev;
+            }
+            ForHead::UsingDecl(using_decl) => {
+                self.in_for_head = false;
+                using_decl.visit_mut_with(self);
+                self.in_for_head = prev;
+            }
+            ForHead::Pat(pat) => {
+                self.in_for_head = false;
+                pat.visit_mut_with(self);
+                self.in_for_head = prev;
+            }
+        }
+
+        stmt.right.visit_mut_with(self);
+        stmt.body.visit_mut_with(self);
+    }
+
+    fn visit_mut_for_of_stmt(&mut self, stmt: &mut ForOfStmt) {
+        let prev = self.in_for_head;
+        match &mut stmt.left {
+            ForHead::VarDecl(var_decl) => {
+                self.in_for_head = true;
+                var_decl.visit_mut_with(self);
+                self.in_for_head = prev;
+            }
+            ForHead::UsingDecl(using_decl) => {
+                self.in_for_head = false;
+                using_decl.visit_mut_with(self);
+                self.in_for_head = prev;
+            }
+            ForHead::Pat(pat) => {
+                self.in_for_head = false;
+                pat.visit_mut_with(self);
+                self.in_for_head = prev;
+            }
+        }
+
+        stmt.right.visit_mut_with(self);
+        stmt.body.visit_mut_with(self);
+    }
     fn visit_mut_var_decl(&mut self, decl: &mut VarDecl) {
         decl.visit_mut_children_with(self);
 
         // Remove variable declarations for read-only literals
-        if self.remove_garbage {
+        if self.remove_garbage && !self.in_for_head {
             decl.decls.retain(|declarator| {
                 if let Pat::Ident(binding) = &declarator.name {
                     let id: Id = (binding.id.sym.clone(), binding.id.ctxt);

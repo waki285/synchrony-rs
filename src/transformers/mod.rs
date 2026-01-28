@@ -11,6 +11,7 @@ mod demangle;
 mod desequence;
 mod jsconfuser_calculator;
 mod jsconfuser_controlflow;
+mod literaldecoder;
 mod literalmap;
 mod memberexpressioncleaner;
 mod rename;
@@ -29,6 +30,7 @@ pub use demangle::Demangle;
 pub use desequence::Desequence;
 pub use jsconfuser_calculator::JSConfuserCalculator;
 pub use jsconfuser_controlflow::JSConfuserControlFlow;
+pub use literaldecoder::LiteralDecoder;
 pub use literalmap::LiteralMap;
 pub use memberexpressioncleaner::MemberExpressionCleaner;
 pub use rename::Rename;
@@ -86,6 +88,7 @@ pub fn create_transformer(name: &str) -> Result<TransformerBox> {
         "simplify" => Ok(Arc::new(Simplify::new())),
         "deadcode" => Ok(Arc::new(DeadCode::new())),
         "memberexpressioncleaner" => Ok(Arc::new(MemberExpressionCleaner::new())),
+        "literaldecoder" | "literal_decoder" => Ok(Arc::new(LiteralDecoder::new())),
         "desequence" => Ok(Arc::new(Desequence::new())),
         "literalmap" => Ok(Arc::new(LiteralMap::new())),
         "demangle" => Ok(Arc::new(Demangle::new())),
@@ -157,6 +160,7 @@ pub fn default_transformers() -> Vec<TransformerBox> {
     vec![
         Arc::new(Simplify::new()),
         Arc::new(MemberExpressionCleaner::new()),
+        Arc::new(LiteralDecoder::new()),
         Arc::new(LiteralMap::new()),
         Arc::new(DeadCode::new()),
         Arc::new(Demangle::new()),

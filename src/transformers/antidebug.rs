@@ -418,7 +418,7 @@ function ok() { return 1; }
         let deob = Deobfuscator::new();
         let options = DeobfuscateOptions {
             custom_transformers: Some(vec![Arc::new(AntiDebug::new())]),
-            ..DeobfuscateOptions::default()
+            ..Default::default()
         };
         let result = deob.deobfuscate_source(code, Some(options)).unwrap();
         assert!(result.contains("function guard()"));

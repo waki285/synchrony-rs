@@ -14,6 +14,8 @@ use crate::error::Result;
 use crate::scope::{Id, ScopeData, analyze};
 use crate::transformers::Transformer;
 
+const MAX_SELF_DEFENDING_STMTS: usize = 200;
+
 /// `SelfDefending` transformer.
 ///
 /// Removes or neutralizes self-defending and anti-debug patterns.
@@ -208,19 +210,26 @@ impl VisitMut for SelfDefendingRemover {
 }
 
 fn make_noop_function_expr() -> Expr {
-    Expr::Arrow(ArrowExpr {
+    Expr::Paren(ParenExpr {
         span: Span::default(),
-        ctxt: SyntaxContext::default(),
-        params: Vec::new(),
-        body: Box::new(BlockStmtOrExpr::BlockStmt(BlockStmt {
-            span: Span::default(),
-            ctxt: SyntaxContext::default(),
-            stmts: Vec::new(),
+        expr: Box::new(Expr::Fn(FnExpr {
+            ident: None,
+            function: Box::new(Function {
+                params: Vec::new(),
+                decorators: Vec::new(),
+                span: Span::default(),
+                ctxt: SyntaxContext::default(),
+                body: Some(BlockStmt {
+                    span: Span::default(),
+                    ctxt: SyntaxContext::default(),
+                    stmts: Vec::new(),
+                }),
+                is_generator: false,
+                is_async: false,
+                type_params: None,
+                return_type: None,
+            }),
         })),
-        is_async: false,
-        is_generator: false,
-        type_params: None,
-        return_type: None,
     })
 }
 
@@ -238,6 +247,9 @@ fn extract_call_expr(expr: &Expr) -> Option<&CallExpr> {
         Expr::Call(call) => Some(call),
         Expr::Paren(paren) => extract_call_expr(&paren.expr),
         Expr::Seq(seq) => {
+            if !seq_prefix_is_pure(seq) {
+                return None;
+            }
             let expr = seq.exprs.last()?;
             extract_call_expr(expr)
         }
@@ -298,9 +310,56 @@ fn call_callee_has_self_defending_arg(call: &CallExpr) -> bool {
 fn is_self_defending_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Paren(paren) => is_self_defending_expr(&paren.expr),
-        Expr::Seq(seq) => seq.exprs.iter().any(|expr| is_self_defending_expr(expr)),
+        Expr::Seq(seq) => {
+            if !seq_prefix_is_pure(seq) {
+                return false;
+            }
+            seq.exprs
+                .last()
+                .is_some_and(|expr| is_self_defending_expr(expr))
+        }
         Expr::Fn(fn_expr) => is_self_defending_function(&fn_expr.function),
         Expr::Arrow(arrow) => is_self_defending_arrow(arrow),
+        _ => false,
+    }
+}
+
+fn seq_prefix_is_pure(seq: &SeqExpr) -> bool {
+    let len = seq.exprs.len();
+    if len <= 1 {
+        return true;
+    }
+    seq.exprs
+        .iter()
+        .take(len - 1)
+        .all(|expr| is_pure_expr_for_seq(expr))
+}
+
+fn is_pure_expr_for_seq(expr: &Expr) -> bool {
+    match expr {
+        Expr::Ident(_) | Expr::Lit(_) | Expr::Fn(_) | Expr::Arrow(_) | Expr::Class(_) => true,
+        Expr::Paren(paren) => is_pure_expr_for_seq(&paren.expr),
+        Expr::Unary(unary) => {
+            matches!(
+                unary.op,
+                UnaryOp::Plus | UnaryOp::Minus | UnaryOp::Bang | UnaryOp::Tilde
+            ) && is_pure_expr_for_seq(&unary.arg)
+        }
+        Expr::Array(arr) => arr
+            .elems
+            .iter()
+            .flatten()
+            .all(|elem| is_pure_expr_for_seq(&elem.expr)),
+        Expr::Object(obj) => obj.props.iter().all(|prop| match prop {
+            PropOrSpread::Prop(prop) => match &**prop {
+                Prop::KeyValue(kv) => is_pure_expr_for_seq(&kv.value),
+                Prop::Method(_) | Prop::Getter(_) | Prop::Setter(_) | Prop::Shorthand(_) => true,
+                Prop::Assign(_) => false,
+            },
+            PropOrSpread::Spread(_) => false,
+        }),
+        Expr::Seq(seq) => seq.exprs.iter().all(|expr| is_pure_expr_for_seq(expr)),
+        Expr::Tpl(tpl) => tpl.exprs.iter().all(|expr| is_pure_expr_for_seq(expr)),
         _ => false,
     }
 }
@@ -331,6 +390,9 @@ fn is_self_defending_arrow(arrow: &ArrowExpr) -> bool {
         BlockStmtOrExpr::BlockStmt(block) => block.visit_with(&mut scan),
         BlockStmtOrExpr::Expr(expr) => expr.visit_with(&mut scan),
     }
+    if scan.stmt_count > MAX_SELF_DEFENDING_STMTS {
+        return false;
+    }
     scan.is_self_defending()
 }
 
@@ -338,6 +400,9 @@ fn is_self_defending_function(func: &Function) -> bool {
     let mut scan = SelfDefendingScan::default();
     if let Some(body) = &func.body {
         body.visit_with(&mut scan);
+    }
+    if scan.stmt_count > MAX_SELF_DEFENDING_STMTS {
+        return false;
     }
     scan.is_self_defending()
 }
@@ -460,6 +525,7 @@ struct SelfDefendingScan {
     has_return_this: bool,
     regexp_vars: HashSet<String>,
     has_regexp_negated_or_test: bool,
+    stmt_count: usize,
 }
 
 impl SelfDefendingScan {
@@ -569,6 +635,11 @@ impl SelfDefendingScan {
 }
 
 impl Visit for SelfDefendingScan {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        self.stmt_count += 1;
+        stmt.visit_children_with(self);
+    }
+
     fn visit_fn_decl(&mut self, _decl: &FnDecl) {
         // Skip nested functions to avoid false positives from inner guards.
     }

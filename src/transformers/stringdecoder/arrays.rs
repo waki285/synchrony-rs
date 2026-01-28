@@ -240,7 +240,16 @@ impl VisitMut for StringArrayDeclarationRemover {
             let Pat::Ident(binding) = &declarator.name else {
                 return true;
             };
-            !self.variable_arrays.contains(binding.id.sym.as_ref())
+            if !self.variable_arrays.contains(binding.id.sym.as_ref()) {
+                return true;
+            }
+            let Some(init) = &declarator.init else {
+                return true;
+            };
+            let Expr::Array(arr) = &**init else {
+                return true;
+            };
+            !(arr.elems.len() >= 5 && StringArrayFinder::extract_string_array(arr).is_some())
         });
     }
 }

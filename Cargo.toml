@@ -1,6 +1,6 @@
 [package]
 name = "synchrony-rs"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 authors = ["waki285 <suzuneu@suzuneu.com>", "relative <hi@relative.im>"]
 description = "A fast JavaScript deobfuscator written in Rust"
@@ -37,6 +37,13 @@ format = [
     "dep:biome_js_formatter",
     "dep:biome_js_parser",
     "dep:biome_js_syntax",
+    "dep:biome_console",
+    "dep:biome_diagnostics",
+    "dep:biome_parser",
+    "dep:biome_rowan",
+    "dep:biome_text_edit",
+    "dep:biome_text_size",
+    "dep:biome_unicode_table",
 ]
 cli = ["dep:clap", "dep:serde", "dep:serde_json", "format"]
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
@@ -50,10 +57,17 @@ wasm = [
 
 [dependencies]
 anyhow = "1"
-biome_formatter = { version = "0.5.7", optional = true }
-biome_js_formatter = { version = "0.5.7", optional = true }
-biome_js_parser = { version = "0.5.7", optional = true }
-biome_js_syntax = { version = "0.5.7", optional = true }
+biome_formatter = { version = "=0.5.7", optional = true }
+biome_js_formatter = { version = "=0.5.7", optional = true }
+biome_js_parser = { version = "=0.5.7", optional = true }
+biome_js_syntax = { version = "=0.5.7", optional = true }
+biome_console = { version = "=0.5.7", optional = true }
+biome_diagnostics = { version = "=0.5.7", optional = true }
+biome_parser = { version = "=0.5.7", optional = true }
+biome_rowan = { version = "=0.5.7", optional = true }
+biome_text_edit = { version = "=0.5.7", optional = true }
+biome_text_size = { version = "=0.5.7", optional = true }
+biome_unicode_table = { version = "=0.5.7", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 regex = "1"
 serde = { version = "1", features = ["derive"], optional = true }

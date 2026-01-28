@@ -642,6 +642,28 @@ impl VisitMut for SimplifyVisitor {
 struct FixupVisitor;
 
 impl VisitMut for FixupVisitor {
+    fn visit_mut_stmt(&mut self, stmt: &mut Stmt) {
+        stmt.visit_mut_children_with(self);
+
+        if let Stmt::Decl(Decl::Var(var_decl)) = stmt
+            && var_decl.decls.is_empty()
+        {
+            *stmt = Stmt::Empty(EmptyStmt {
+                span: Span::default(),
+            });
+        }
+    }
+
+    fn visit_mut_for_stmt(&mut self, stmt: &mut ForStmt) {
+        stmt.visit_mut_children_with(self);
+
+        if let Some(VarDeclOrExpr::VarDecl(var_decl)) = &stmt.init
+            && var_decl.decls.is_empty()
+        {
+            stmt.init = None;
+        }
+    }
+
     fn visit_mut_expr(&mut self, expr: &mut Expr) {
         expr.visit_mut_children_with(self);
 

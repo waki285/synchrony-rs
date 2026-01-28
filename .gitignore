@@ -49,6 +49,7 @@ sample/report.json
 dist/
 
 sample/tmp_*
+sample/_*
 # Added by cargo
 
 /target
