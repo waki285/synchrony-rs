@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use swc_common::Span;
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith as _};
 
@@ -95,13 +96,7 @@ impl RotationIifeRemover {
         Self { rotated_names: map }
     }
 
-    fn is_rotation_iife(&self, stmt: &Stmt) -> bool {
-        let Stmt::Expr(expr_stmt) = stmt else {
-            return false;
-        };
-        let Some(call) = Self::extract_call_expr(&expr_stmt.expr) else {
-            return false;
-        };
+    fn is_rotation_iife_call(&self, call: &CallExpr) -> bool {
         if call.args.len() < 2 {
             return false;
         }
@@ -117,15 +112,24 @@ impl RotationIifeRemover {
         Self::extract_fn_expr(callee).is_some()
     }
 
-    fn extract_call_expr(expr: &Expr) -> Option<&CallExpr> {
-        match expr {
-            Expr::Call(call) => Some(call),
-            Expr::Paren(paren) => Self::extract_call_expr(&paren.expr),
-            Expr::Seq(seq) => {
-                let e = seq.exprs.last()?;
-                Self::extract_call_expr(e)
+    fn filter_rotation_iifes(&self, expr: Box<Expr>) -> Option<Box<Expr>> {
+        match *expr {
+            Expr::Seq(mut seq) => {
+                seq.exprs = seq
+                    .exprs
+                    .into_iter()
+                    .filter_map(|expr| self.filter_rotation_iifes(expr))
+                    .collect();
+
+                match seq.exprs.len() {
+                    0 => None,
+                    1 => seq.exprs.pop(),
+                    _ => Some(Box::new(Expr::Seq(seq))),
+                }
             }
-            _ => None,
+            Expr::Paren(paren) => self.filter_rotation_iifes(paren.expr),
+            Expr::Call(call) if self.is_rotation_iife_call(&call) => None,
+            expr => Some(Box::new(expr)),
         }
     }
 
@@ -134,8 +138,12 @@ impl RotationIifeRemover {
             Expr::Fn(fn_expr) => Some(fn_expr),
             Expr::Paren(paren) => Self::extract_fn_expr(&paren.expr),
             Expr::Seq(seq) => {
-                let e = seq.exprs.last()?;
-                Self::extract_fn_expr(e)
+                for expr in &seq.exprs {
+                    if let Some(fn_expr) = Self::extract_fn_expr(expr) {
+                        return Some(fn_expr);
+                    }
+                }
+                None
             }
             _ => None,
         }
@@ -153,24 +161,41 @@ impl RotationIifeRemover {
 
 impl VisitMut for RotationIifeRemover {
     fn visit_mut_script(&mut self, script: &mut Script) {
-        script.body.retain(|stmt| !self.is_rotation_iife(stmt));
         script.visit_mut_children_with(self);
+        script.body.retain(|stmt| !matches!(stmt, Stmt::Empty(_)));
     }
 
     fn visit_mut_module(&mut self, module: &mut Module) {
-        module.body.retain(|item| {
-            if let ModuleItem::Stmt(stmt) = item {
-                !self.is_rotation_iife(stmt)
-            } else {
-                true
-            }
-        });
         module.visit_mut_children_with(self);
+        module
+            .body
+            .retain(|item| !matches!(item, ModuleItem::Stmt(Stmt::Empty(_))));
     }
 
     fn visit_mut_block_stmt(&mut self, block: &mut BlockStmt) {
-        block.stmts.retain(|stmt| !self.is_rotation_iife(stmt));
         block.visit_mut_children_with(self);
+        block.stmts.retain(|stmt| !matches!(stmt, Stmt::Empty(_)));
+    }
+
+    fn visit_mut_stmt(&mut self, stmt: &mut Stmt) {
+        stmt.visit_mut_children_with(self);
+
+        let Stmt::Expr(expr_stmt) = stmt else {
+            return;
+        };
+
+        let placeholder = Box::new(Expr::Lit(Lit::Null(Null {
+            span: Span::default(),
+        })));
+        let expr = std::mem::replace(&mut expr_stmt.expr, placeholder);
+
+        if let Some(expr) = self.filter_rotation_iifes(expr) {
+            expr_stmt.expr = expr;
+        } else {
+            *stmt = Stmt::Empty(EmptyStmt {
+                span: Span::default(),
+            });
+        }
     }
 }
 
@@ -298,8 +323,12 @@ impl<'a> ShiftFinder<'a> {
             Expr::Call(call) => Some(call),
             Expr::Paren(paren) => Self::extract_call_expr(&paren.expr),
             Expr::Seq(seq) => {
-                let e = seq.exprs.last()?;
-                Self::extract_call_expr(e)
+                for expr in &seq.exprs {
+                    if let Some(call) = Self::extract_call_expr(expr) {
+                        return Some(call);
+                    }
+                }
+                None
             }
             _ => None,
         }
@@ -312,8 +341,12 @@ impl<'a> ShiftFinder<'a> {
             Expr::Fn(fn_expr) => Some(fn_expr),
             Expr::Paren(paren) => Self::extract_fn_expr(&paren.expr),
             Expr::Seq(seq) => {
-                let e = seq.exprs.last()?;
-                Self::extract_fn_expr(e)
+                for expr in &seq.exprs {
+                    if let Some(fn_expr) = Self::extract_fn_expr(expr) {
+                        return Some(fn_expr);
+                    }
+                }
+                None
             }
             _ => None,
         }

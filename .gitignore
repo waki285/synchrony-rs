@@ -57,3 +57,4 @@ sample/_*
 # wasm-pack output
 pkg
 /public/pkg
+work

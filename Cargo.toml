@@ -79,13 +79,13 @@ serde_json = { version = "1", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 js-sys = { version = "0.3", optional = true }
 swc_atoms = "9"
-swc_common = { version = "18", features = ["tty-emitter"] }
-swc_ecma_ast = "20"
-swc_ecma_codegen = "23"
-swc_ecma_parser = "33"
-swc_ecma_usage_analyzer = "28"
-swc_ecma_utils = "26"
-swc_ecma_visit = "20"
+swc_common = { version = "21", features = ["tty-emitter"] }
+swc_ecma_ast = "23"
+swc_ecma_codegen = "26"
+swc_ecma_parser = "39"
+swc_ecma_usage_analyzer = "31"
+swc_ecma_utils = "29"
+swc_ecma_visit = "23"
 thiserror = "2"
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }

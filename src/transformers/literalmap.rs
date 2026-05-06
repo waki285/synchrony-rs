@@ -51,6 +51,19 @@ impl Default for LiteralMap {
     }
 }
 
+fn is_obfuscated_literal_name(name: &str) -> bool {
+    if name.starts_with("_0x") && name.len() <= 10 {
+        return true;
+    }
+
+    name.len() <= 3
+        && name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && name.len() > 1
+        && name
+            .get(1..)
+            .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit()))
+}
+
 impl Transformer for LiteralMap {
     fn name(&self) -> &'static str {
         "LiteralMap"
@@ -393,6 +406,10 @@ impl VisitMut for ReadOnlyLiteralFinder<'_> {
 
                     // Skip 'arguments'
                     if binding.id.sym.as_str() == "arguments" {
+                        continue;
+                    }
+
+                    if !is_obfuscated_literal_name(binding.id.sym.as_ref()) {
                         continue;
                     }
 
